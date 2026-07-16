@@ -1,27 +1,24 @@
 const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const fs = require('node:fs');
+const https = require('node:https');
 const path = require('node:path');
 
 const DEFAULT_CONFIG = {
-  appTitle: 'Office Info Dashboard',
   monitoringUrl: 'https://example.org',
   weather: {
     locationName: 'Kempten (Allgäu)',
     latitude: 47.7267,
     longitude: 10.3139,
-    timezone: 'Europe/Berlin'
-  },
-  meme: {
-    enabled: true,
-    refreshMinutes: 360
-  },
-  schedule: {
     timezone: 'Europe/Berlin',
-    almostLunch: '11:50',
-    lunchStart: '11:55',
-    lunchEndDisplayUntil: '12:50',
-    breakFinished: '13:00',
-    breakFinishedDurationSeconds: 60
+    refreshMinutes: 10
+  },
+  time: { timezone: 'Europe/Berlin', resyncMinutes: 15 },
+  meme: { enabled: true, refreshMinutes: 30, sources: ['deutschememes'], historySize: 50, blockedKeywords: [], maxAttempts: 15 },
+  schedule: {
+    timezone: 'Europe/Berlin', wakeTime: '07:30', morningStart: '08:00', morningDurationMinutes: 5,
+    almostLunch: '11:50', lunchStart: '11:55', lunchEndDisplayUntil: '12:50',
+    breakFinished: '13:00', breakFinishedDurationSeconds: 60,
+    almostHomeStart: '16:00', almostHomeDurationMinutes: 5, goodbyeStart: '16:50', sleepStart: '17:00'
   },
   kiosk: true,
   allowDevTools: false
@@ -38,6 +35,7 @@ function readConfig() {
       ...DEFAULT_CONFIG,
       ...parsed,
       weather: { ...DEFAULT_CONFIG.weather, ...(parsed.weather || {}) },
+      time: { ...DEFAULT_CONFIG.time, ...(parsed.time || {}) },
       meme: { ...DEFAULT_CONFIG.meme, ...(parsed.meme || {}) },
       schedule: { ...DEFAULT_CONFIG.schedule, ...(parsed.schedule || {}) }
     };
@@ -47,9 +45,39 @@ function readConfig() {
   }
 }
 
+function readHttpsDate(url, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.0', 'Cache-Control': 'no-cache' } }, (response) => {
+      const dateHeader = response.headers.date;
+      response.resume();
+      if (!dateHeader) return reject(new Error('Kein Date-Header'));
+      const timestamp = Date.parse(dateHeader);
+      if (!Number.isFinite(timestamp)) return reject(new Error('Ungültiger Date-Header'));
+      resolve({ timestamp, source: new URL(url).hostname });
+    });
+    request.setTimeout(timeoutMs, () => request.destroy(new Error('Zeitüberschreitung')));
+    request.on('error', reject);
+  });
+}
+
+async function getNetworkTime() {
+  const sources = [
+    'https://www.cloudflare.com/cdn-cgi/trace',
+    'https://www.google.com/generate_204',
+    'https://api.github.com'
+  ];
+
+  const results = await Promise.allSettled(sources.map((url) => readHttpsDate(url)));
+  const valid = results.filter((result) => result.status === 'fulfilled').map((result) => result.value);
+  if (!valid.length) return { ok: false, timestamp: Date.now(), source: 'system' };
+
+  valid.sort((a, b) => a.timestamp - b.timestamp);
+  const median = valid[Math.floor(valid.length / 2)];
+  return { ok: true, timestamp: median.timestamp, source: median.source, samples: valid.length };
+}
+
 function createWindow() {
   config = readConfig();
-
   mainWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
@@ -58,7 +86,7 @@ function createWindow() {
     fullscreen: Boolean(config.kiosk),
     kiosk: Boolean(config.kiosk),
     autoHideMenuBar: true,
-    backgroundColor: '#070a0f',
+    backgroundColor: '#000000',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -71,31 +99,24 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
-
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('file://')) event.preventDefault();
   });
-
-  if (process.argv.includes('--dev') && config.allowDevTools) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  }
+  if (process.argv.includes('--dev') && config.allowDevTools) mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-
   ipcMain.handle('dashboard:get-config', () => config);
+  ipcMain.handle('dashboard:get-network-time', getNetworkTime);
   ipcMain.handle('dashboard:exit-kiosk', () => {
     if (mainWindow && config.allowDevTools) mainWindow.setKiosk(false);
   });
-
   createWindow();
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

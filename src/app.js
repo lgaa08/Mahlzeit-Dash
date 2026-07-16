@@ -5,7 +5,9 @@ const state = {
   networkTimeBase: null,
   networkTimeFetchedAt: null,
   memeHistory: { urls: [], postIds: [], sha256: [], dHashes: [] },
-  hasVisibleMeme: false
+  hasVisibleMeme: false,
+  browserReady: false,
+  pendingBrowserMute: false
 };
 
 const elements = {
@@ -95,11 +97,23 @@ function hideAnnouncement(force = false) {
   elements.announcementClose.style.display = 'none';
 }
 
+function runBrowserAction(action) {
+  if (!state.browserReady || !elements.browser?.isConnected) return false;
+  try {
+    action(elements.browser);
+    return true;
+  } catch (error) {
+    console.warn(`WebView-Aktion übersprungen: ${error.message}`);
+    return false;
+  }
+}
+
 function setSleepMode(enabled) {
   elements.sleepScreen.classList.toggle('visible', enabled);
   elements.sleepScreen.setAttribute('aria-hidden', enabled ? 'false' : 'true');
   document.body.classList.toggle('sleeping', enabled);
-  if (elements.browser?.setAudioMuted) elements.browser.setAudioMuted(enabled);
+  state.pendingBrowserMute = enabled;
+  runBrowserAction((browser) => browser.setAudioMuted(enabled));
 }
 
 function evaluateSchedule() {
@@ -145,7 +159,12 @@ function setupLunchPreview() {
 function setupBrowser() {
   const browser = elements.browser;
   const homeUrl = state.config.monitoringUrl;
-  browser.src = homeUrl;
+
+  browser.addEventListener('dom-ready', () => {
+    state.browserReady = true;
+    runBrowserAction((readyBrowser) => readyBrowser.setAudioMuted(state.pendingBrowserMute));
+  });
+  browser.addEventListener('destroyed', () => { state.browserReady = false; });
   browser.addEventListener('did-start-loading', () => elements.browserLoading.classList.remove('hidden'));
   browser.addEventListener('did-stop-loading', () => elements.browserLoading.classList.add('hidden'));
   browser.addEventListener('did-fail-load', (event) => {
@@ -153,11 +172,25 @@ function setupBrowser() {
     elements.browserLoading.innerHTML = `<p>Monitoring konnte nicht geladen werden<br>${escapeHtml(event.errorDescription)}</p>`;
     elements.browserLoading.classList.remove('hidden');
   });
-  browser.addEventListener('new-window', (event) => { event.preventDefault(); browser.loadURL(event.url); });
-  document.getElementById('browser-back').addEventListener('click', () => browser.canGoBack() && browser.goBack());
-  document.getElementById('browser-forward').addEventListener('click', () => browser.canGoForward() && browser.goForward());
-  document.getElementById('browser-home').addEventListener('click', () => browser.loadURL(homeUrl));
-  document.getElementById('browser-reload').addEventListener('click', () => browser.reload());
+  browser.addEventListener('new-window', (event) => {
+    event.preventDefault();
+    runBrowserAction((readyBrowser) => readyBrowser.loadURL(event.url));
+  });
+
+  document.getElementById('browser-back').addEventListener('click', () => {
+    runBrowserAction((readyBrowser) => { if (readyBrowser.canGoBack()) readyBrowser.goBack(); });
+  });
+  document.getElementById('browser-forward').addEventListener('click', () => {
+    runBrowserAction((readyBrowser) => { if (readyBrowser.canGoForward()) readyBrowser.goForward(); });
+  });
+  document.getElementById('browser-home').addEventListener('click', () => {
+    runBrowserAction((readyBrowser) => readyBrowser.loadURL(homeUrl));
+  });
+  document.getElementById('browser-reload').addEventListener('click', () => {
+    runBrowserAction((readyBrowser) => readyBrowser.reload());
+  });
+
+  browser.src = homeUrl;
 }
 
 async function loadWeather() {
@@ -298,11 +331,11 @@ async function loadMeme() {
 async function init() {
   state.config = await window.dashboardAPI.getConfig();
   loadMemeHistory();
+  setupBrowser();
   await syncNetworkTime();
   updateClock();
   evaluateSchedule();
   setupLunchPreview();
-  setupBrowser();
   loadWeather();
   loadMeme();
 
@@ -312,7 +345,10 @@ async function init() {
   setInterval(loadMeme, Math.max(10, Number(state.config.meme.refreshMinutes || 30)) * 60000);
   document.getElementById('meme-refresh').addEventListener('click', loadMeme);
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'F5') elements.browser.reload();
+    if (event.key === 'F5') {
+      event.preventDefault();
+      runBrowserAction((browser) => browser.reload());
+    }
     if (event.key === 'Escape' && state.previewActive) hideAnnouncement(true);
     if (event.key === 'F11') event.preventDefault();
   });

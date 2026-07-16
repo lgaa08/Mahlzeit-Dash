@@ -1,0 +1,106 @@
+/* Lightweight animations: only transform and opacity to avoid expensive repaints. */
+.ambient {
+  display: block;
+  position: fixed;
+  width: 42vw;
+  height: 42vw;
+  pointer-events: none;
+  border-radius: 50%;
+  opacity: .08;
+  background: radial-gradient(circle, rgba(79, 140, 255, .75) 0%, rgba(79, 140, 255, .12) 42%, transparent 70%);
+  will-change: transform, opacity;
+  animation: ambient-float 28s ease-in-out infinite alternate;
+}
+
+.ambient-one { top: -24vw; left: -15vw; }
+.ambient-two {
+  right: -16vw;
+  bottom: -25vw;
+  background: radial-gradient(circle, rgba(139, 92, 255, .65) 0%, rgba(139, 92, 255, .1) 42%, transparent 70%);
+  animation-delay: -14s;
+}
+
+.live-pulse,
+.status-dot {
+  animation: soft-pulse 2.8s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+.loader-core span {
+  animation: loader-breathe 1.4s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+.loader-core span:nth-child(2) { animation-delay: -.45s; }
+.loader-core span:nth-child(3) { animation-delay: -.9s; }
+
+.skeleton-orbit {
+  animation: lightweight-spin 1.4s linear infinite;
+  will-change: transform;
+}
+
+.panel-glow {
+  display: block;
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  top: -115px;
+  right: -65px;
+  border-radius: 50%;
+  opacity: .13;
+  background: radial-gradient(circle, rgba(80, 220, 255, .8), transparent 68%);
+  pointer-events: none;
+}
+
+.announcement.visible .announcement-inner {
+  animation: alert-enter .28s ease-out both;
+}
+
+.announcement.blinking .announcement-label {
+  animation: alert-label-pulse 1.5s ease-in-out infinite;
+}
+
+.glow-button:hover,
+.browser-actions button:hover {
+  transform: translateY(-1px);
+}
+
+@keyframes ambient-float {
+  from { transform: translate3d(0, 0, 0) scale(1); opacity: .06; }
+  to { transform: translate3d(4vw, 3vh, 0) scale(1.08); opacity: .1; }
+}
+
+@keyframes soft-pulse {
+  0%, 100% { opacity: .65; transform: scale(.92); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes loader-breathe {
+  from { transform: scaleY(.55); opacity: .35; }
+  to { transform: scaleY(1); opacity: .9; }
+}
+
+@keyframes lightweight-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes alert-enter {
+  from { opacity: 0; transform: translate3d(0, 14px, 0) scale(.985); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes alert-label-pulse {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient,
+  .live-pulse,
+  .status-dot,
+  .loader-core span,
+  .skeleton-orbit,
+  .announcement.visible .announcement-inner,
+  .announcement.blinking .announcement-label {
+    animation: none !important;
+  }
+}

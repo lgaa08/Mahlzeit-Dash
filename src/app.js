@@ -5,7 +5,8 @@ const state = {
   dismissedAnnouncement: null,
   networkTimeBase: null,
   networkTimeFetchedAt: null,
-  memeHistory: { urls: [], postIds: [], sha256: [], dHashes: [] },
+  memeHistory: { urls: [], postIds: [] },
+  memePool: [],
   hasVisibleMeme: false,
   browserReady: false,
   pendingBrowserMute: false,
@@ -36,12 +37,18 @@ const WEATHER_CODES = {
   0: ['☀️', 'Klar'], 1: ['🌤️', 'Überwiegend klar'], 2: ['⛅', 'Teilweise bewölkt'], 3: ['☁️', 'Bewölkt'],
   45: ['🌫️', 'Nebel'], 48: ['🌫️', 'Reifnebel'], 51: ['🌦️', 'Leichter Nieselregen'], 53: ['🌦️', 'Nieselregen'],
   55: ['🌧️', 'Starker Nieselregen'], 61: ['🌦️', 'Leichter Regen'], 63: ['🌧️', 'Regen'], 65: ['🌧️', 'Starker Regen'],
-  71: ['🌨️', 'Leichter Schneefall'], 73: ['🌨️', 'Schneefall'], 75: ['❄️', 'Starker Schneefall'], 80: ['🌦️', 'Regenschauer'],
-  81: ['🌧️', 'Kräftige Schauer'], 82: ['⛈️', 'Starke Schauer'], 95: ['⛈️', 'Gewitter'], 96: ['⛈️', 'Gewitter mit Hagel'], 99: ['⛈️', 'Starkes Gewitter']
+  71: ['🌨️', 'Leichter Schneefall'], 73: ['🌨️', 'Schneefall'], 75: ['❄️', 'Starker Schneefall'],
+  80: ['🌦️', 'Regenschauer'], 81: ['🌧️', 'Kräftige Schauer'], 82: ['⛈️', 'Starke Schauer'],
+  95: ['⛈️', 'Gewitter'], 96: ['⛈️', 'Gewitter mit Hagel'], 99: ['⛈️', 'Starkes Gewitter']
 };
 
 function escapeHtml(value = '') {
-  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 function currentDate() {
@@ -62,7 +69,9 @@ async function syncNetworkTime() {
   const result = await window.dashboardAPI.getNetworkTime();
   state.networkTimeBase = Number(result.timestamp);
   state.networkTimeFetchedAt = Date.now();
-  elements.clockSync.textContent = result.ok ? `NETZZEIT · ${String(result.source).toUpperCase()}` : 'SYSTEMZEIT · NTP DES LINUXCLIENTS';
+  elements.clockSync.textContent = result.ok
+    ? `NETZZEIT · ${String(result.source).toUpperCase()}`
+    : 'SYSTEMZEIT · NTP DES LINUXCLIENTS';
   elements.clockSync.classList.toggle('synced', Boolean(result.ok));
 }
 
@@ -107,9 +116,7 @@ function dismissAnnouncement() {
     return;
   }
   if (state.activeAnnouncement) state.dismissedAnnouncement = state.activeAnnouncement;
-  elements.announcement.classList.remove('visible', 'blinking');
-  elements.announcement.setAttribute('aria-hidden', 'true');
-  elements.announcementClose.style.display = 'none';
+  hideAnnouncement(true);
 }
 
 function runBrowserAction(action) {
@@ -143,6 +150,7 @@ function evaluateSchedule() {
   const sleep = timeToMinutes(schedule.sleepStart);
   const sleeping = minutes >= sleep || minutes < wake;
   setSleepMode(sleeping);
+
   if (sleeping) {
     state.dismissedAnnouncement = null;
     hideAnnouncement();
@@ -182,8 +190,10 @@ function evaluateSchedule() {
   }
 }
 
-function setupLunchPreview() {
-  document.getElementById('lunch-preview').addEventListener('click', () => showAnnouncement('preview', 'Mahlzeit!', 'Testansicht · Lasst es euch schmecken', '🍽️', false, true));
+function setupAnnouncementControls() {
+  document.getElementById('lunch-preview').addEventListener('click', () => {
+    showAnnouncement('preview', 'Mahlzeit!', 'Testansicht · Lasst es euch schmecken', '🍽️', false, true);
+  });
   elements.announcementClose.addEventListener('click', (event) => {
     event.stopPropagation();
     dismissAnnouncement();
@@ -249,21 +259,20 @@ function uniqueStrings(values) {
 
 function loadMemeHistory() {
   try {
-    const raw = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistoryV2') || '{}');
+    const current = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistoryV3') || '{}');
+    const previous = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistoryV2') || '{}');
     state.memeHistory = {
-      urls: uniqueStrings(raw.urls), postIds: uniqueStrings(raw.postIds),
-      sha256: uniqueStrings(raw.sha256), dHashes: uniqueStrings(raw.dHashes)
+      urls: uniqueStrings([...(current.urls || []), ...(previous.urls || [])]),
+      postIds: uniqueStrings([...(current.postIds || []), ...(previous.postIds || [])])
     };
-    const oldUrls = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistory') || '[]');
-    state.memeHistory.urls = uniqueStrings([...state.memeHistory.urls, ...(Array.isArray(oldUrls) ? oldUrls : [])]);
     saveMemeHistory();
   } catch (_error) {
-    state.memeHistory = { urls: [], postIds: [], sha256: [], dHashes: [] };
+    state.memeHistory = { urls: [], postIds: [] };
   }
 }
 
 function saveMemeHistory() {
-  localStorage.setItem('mahlzeitDashMemeHistoryV2', JSON.stringify(state.memeHistory));
+  localStorage.setItem('mahlzeitDashMemeHistoryV3', JSON.stringify(state.memeHistory));
 }
 
 function extractPostId(meme) {
@@ -272,77 +281,68 @@ function extractPostId(meme) {
   return match?.[1] || explicit || '';
 }
 
-function hammingDistanceHex(a, b) {
-  try {
-    let value = BigInt(`0x${a}`) ^ BigInt(`0x${b}`);
-    let distance = 0;
-    while (value) { distance += Number(value & 1n); value >>= 1n; }
-    return distance;
-  } catch (_error) {
-    return 64;
-  }
-}
-
-function isKnownFingerprint(fingerprint) {
-  if (!fingerprint) return true;
-  if (state.memeHistory.sha256.includes(fingerprint.sha256)) return true;
-  const threshold = Math.max(0, Number(state.config.meme.perceptualHashDistance ?? 5));
-  return state.memeHistory.dHashes.some((known) => hammingDistanceHex(known, fingerprint.dHash) <= threshold);
-}
-
-function rememberMeme(meme, fingerprint) {
-  const postId = extractPostId(meme);
-  state.memeHistory.urls = uniqueStrings([...state.memeHistory.urls, meme.url]);
-  state.memeHistory.postIds = uniqueStrings([...state.memeHistory.postIds, postId]);
-  state.memeHistory.sha256 = uniqueStrings([...state.memeHistory.sha256, fingerprint.sha256]);
-  state.memeHistory.dHashes = uniqueStrings([...state.memeHistory.dHashes, fingerprint.dHash]);
-  saveMemeHistory();
-}
-
-function isSafeMemeMetadata(meme) {
+function isSafeNewMeme(meme) {
   if (!meme?.url || meme.nsfw || meme.spoiler) return false;
   if (String(meme.subreddit || '').toLowerCase() !== 'deutschememes') return false;
   if (state.memeHistory.urls.includes(meme.url)) return false;
   const postId = extractPostId(meme);
   if (postId && state.memeHistory.postIds.includes(postId)) return false;
   const url = String(meme.url).toLowerCase();
-  if (!['.jpg', '.jpeg', '.png', '.webp'].some((ext) => url.includes(ext))) return false;
+  if (!['.jpg', '.jpeg', '.png', '.webp'].some((extension) => url.includes(extension))) return false;
   const searchable = `${meme.title || ''} ${meme.postLink || ''}`.toLowerCase();
   return !(state.config.meme.blockedKeywords || []).some((word) => searchable.includes(String(word).toLowerCase()));
 }
 
-async function loadMeme() {
+function shuffle(items) {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
+async function refillMemePool(forceRefresh = false) {
+  const result = await window.dashboardAPI.getMemePool(forceRefresh);
+  const candidates = Array.isArray(result?.memes) ? result.memes.filter(isSafeNewMeme) : [];
+  state.memePool = shuffle(candidates);
+  return state.memePool.length;
+}
+
+function displayMeme(meme) {
+  const postId = extractPostId(meme);
+  state.memeHistory.urls = uniqueStrings([...state.memeHistory.urls, meme.url]);
+  state.memeHistory.postIds = uniqueStrings([...state.memeHistory.postIds, postId]);
+  saveMemeHistory();
+  const title = escapeHtml(meme.title || 'Deutsches Meme');
+  elements.memeContent.className = 'meme-content';
+  elements.memeContent.innerHTML = `<img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer"><div class="meme-caption">${title}</div>`;
+  state.hasVisibleMeme = true;
+}
+
+async function loadMeme(forceRefresh = false) {
   const previousHtml = elements.memeContent.innerHTML;
   if (!state.hasVisibleMeme) {
     elements.memeContent.className = 'meme-content loading-card';
-    elements.memeContent.textContent = 'Neues, noch nie angezeigtes Meme wird gesucht …';
+    elements.memeContent.textContent = 'Deutsche Memes werden geladen …';
   }
-  const attempts = Math.max(1, Number(state.config.meme.maxAttempts || 25));
+
   try {
-    for (let index = 0; index < attempts; index += 1) {
-      const response = await fetch('https://meme-api.com/gimme/deutschememes', { cache: 'no-store' });
-      if (!response.ok) continue;
-      const meme = await response.json();
-      if (!isSafeMemeMetadata(meme)) continue;
-      let fingerprint;
-      try { fingerprint = await window.dashboardAPI.fingerprintImage(meme.url); } catch (_error) { continue; }
-      if (isKnownFingerprint(fingerprint)) continue;
-      rememberMeme(meme, fingerprint);
-      const title = escapeHtml(meme.title || 'Deutsches Meme');
-      elements.memeContent.className = 'meme-content';
-      elements.memeContent.innerHTML = `<img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer"><div class="meme-caption">${title}</div>`;
-      state.hasVisibleMeme = true;
-      return;
-    }
-    throw new Error('Kein wirklich neues Meme gefunden');
-  } catch (_error) {
+    state.memePool = state.memePool.filter(isSafeNewMeme);
+    if (!state.memePool.length) await refillMemePool(forceRefresh);
+    if (!state.memePool.length && !forceRefresh) await refillMemePool(true);
+    const meme = state.memePool.shift();
+    if (!meme) throw new Error('Kein neues Meme im Pool');
+    displayMeme(meme);
+  } catch (error) {
+    console.warn(`Meme konnte nicht geladen werden: ${error.message}`);
     if (state.hasVisibleMeme) {
       elements.memeContent.className = 'meme-content';
       elements.memeContent.innerHTML = previousHtml;
       return;
     }
     elements.memeContent.className = 'meme-content fallback-meme';
-    elements.memeContent.innerHTML = '<div><div class="fallback-emoji">🛡️</div><h2>Noch kein neues Meme</h2><p>Alle gefundenen Beiträge waren bereits bekannt oder wurden vom Inhaltsfilter blockiert.</p></div>';
+    elements.memeContent.innerHTML = '<div><div class="fallback-emoji">🛡️</div><h2>Kein neues Meme verfügbar</h2><p>Die API ist gerade nicht erreichbar oder alle Beiträge sind bereits bekannt.</p></div>';
   }
 }
 
@@ -353,15 +353,15 @@ async function init() {
   await syncNetworkTime();
   updateClock();
   evaluateSchedule();
-  setupLunchPreview();
+  setupAnnouncementControls();
   loadWeather();
   loadMeme();
 
   setInterval(() => { updateClock(); evaluateSchedule(); }, 1000);
   setInterval(syncNetworkTime, Math.max(5, Number(state.config.time.resyncMinutes || 15)) * 60000);
   setInterval(loadWeather, Math.max(5, Number(state.config.weather.refreshMinutes || 10)) * 60000);
-  setInterval(loadMeme, Math.max(10, Number(state.config.meme.refreshMinutes || 30)) * 60000);
-  document.getElementById('meme-refresh').addEventListener('click', loadMeme);
+  setInterval(() => loadMeme(false), Math.max(10, Number(state.config.meme.refreshMinutes || 30)) * 60000);
+  document.getElementById('meme-refresh').addEventListener('click', () => loadMeme(false));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'F5') { event.preventDefault(); runBrowserAction((browser) => browser.reload()); }
     if (event.key === 'Escape' && elements.announcement.classList.contains('visible')) dismissAnnouncement();

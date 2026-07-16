@@ -1,5 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, shell, net, nativeImage } = require('electron');
-const crypto = require('node:crypto');
+const { app, BrowserWindow, ipcMain, session, shell, net } = require('electron');
 const fs = require('node:fs');
 const https = require('node:https');
 const path = require('node:path');
@@ -17,10 +16,10 @@ const DEFAULT_CONFIG = {
   meme: {
     enabled: true,
     refreshMinutes: 30,
-    sources: ['deutschememes'],
-    blockedKeywords: [],
-    maxAttempts: 25,
-    perceptualHashDistance: 5
+    source: 'deutschememes',
+    batchSize: 50,
+    poolRefreshMinutes: 60,
+    blockedKeywords: []
   },
   schedule: {
     timezone: 'Europe/Berlin', wakeTime: '07:30', morningStart: '08:00', morningDurationMinutes: 5,
@@ -34,6 +33,7 @@ const DEFAULT_CONFIG = {
 
 let mainWindow;
 let config;
+let memePoolCache = { loadedAt: 0, memes: [] };
 
 function readConfig() {
   const configPath = path.join(__dirname, 'config.json');
@@ -55,7 +55,7 @@ function readConfig() {
 
 function readHttpsDate(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.0', 'Cache-Control': 'no-cache' } }, (response) => {
+    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.1', 'Cache-Control': 'no-cache' } }, (response) => {
       const dateHeader = response.headers.date;
       response.resume();
       if (!dateHeader) return reject(new Error('Kein Date-Header'));
@@ -82,38 +82,23 @@ async function getNetworkTime() {
   return { ok: true, timestamp: median.timestamp, source: median.source, samples: valid.length };
 }
 
-function createDHash(image) {
-  const resized = image.resize({ width: 9, height: 8, quality: 'good' });
-  const bitmap = resized.toBitmap();
-  let bits = '';
-  for (let y = 0; y < 8; y += 1) {
-    for (let x = 0; x < 8; x += 1) {
-      const left = (y * 9 + x) * 4;
-      const right = (y * 9 + x + 1) * 4;
-      const leftGray = bitmap[left + 2] * 0.299 + bitmap[left + 1] * 0.587 + bitmap[left] * 0.114;
-      const rightGray = bitmap[right + 2] * 0.299 + bitmap[right + 1] * 0.587 + bitmap[right] * 0.114;
-      bits += leftGray > rightGray ? '1' : '0';
-    }
+async function getMemePool(_event, forceRefresh = false) {
+  const batchSize = Math.min(50, Math.max(10, Number(config.meme.batchSize || 50)));
+  const maxAge = Math.max(5, Number(config.meme.poolRefreshMinutes || 60)) * 60 * 1000;
+  if (!forceRefresh && memePoolCache.memes.length && Date.now() - memePoolCache.loadedAt < maxAge) {
+    return { ok: true, cached: true, memes: memePoolCache.memes };
   }
-  return BigInt(`0b${bits}`).toString(16).padStart(16, '0');
-}
 
-async function fingerprintImage(_event, url) {
-  if (!/^https:\/\//i.test(String(url))) throw new Error('Nur HTTPS-Bilder erlaubt');
-  const response = await net.fetch(url, {
+  const source = encodeURIComponent(config.meme.source || 'deutschememes');
+  const response = await net.fetch(`https://meme-api.com/gimme/${source}/${batchSize}`, {
     cache: 'no-store',
-    headers: { 'User-Agent': 'Mahlzeit-Dash/1.0' }
+    headers: { 'User-Agent': 'Mahlzeit-Dash/1.1' }
   });
-  if (!response.ok) throw new Error(`Bilddownload fehlgeschlagen: HTTP ${response.status}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (!buffer.length || buffer.length > 20 * 1024 * 1024) throw new Error('Ungültige Bildgröße');
-  const image = nativeImage.createFromBuffer(buffer);
-  if (image.isEmpty()) throw new Error('Bild konnte nicht gelesen werden');
-  return {
-    sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
-    dHash: createDHash(image),
-    size: buffer.length
-  };
+  if (!response.ok) throw new Error(`Meme-API HTTP ${response.status}`);
+  const payload = await response.json();
+  const memes = Array.isArray(payload.memes) ? payload.memes : (payload.url ? [payload] : []);
+  memePoolCache = { loadedAt: Date.now(), memes };
+  return { ok: true, cached: false, memes };
 }
 
 function createWindow() {
@@ -153,7 +138,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   ipcMain.handle('dashboard:get-config', () => config);
   ipcMain.handle('dashboard:get-network-time', getNetworkTime);
-  ipcMain.handle('dashboard:fingerprint-image', fingerprintImage);
+  ipcMain.handle('dashboard:get-meme-pool', getMemePool);
   ipcMain.handle('dashboard:exit-kiosk', () => {
     if (mainWindow && config.allowDevTools) mainWindow.setKiosk(false);
   });

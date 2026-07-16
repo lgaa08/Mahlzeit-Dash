@@ -2,9 +2,9 @@ const state = {
   config: null,
   activeAnnouncement: null,
   previewActive: false,
-  lastMemeUrl: null,
   networkTimeBase: null,
-  networkTimeFetchedAt: null
+  networkTimeFetchedAt: null,
+  recentMemeUrls: []
 };
 
 const elements = {
@@ -23,52 +23,44 @@ const elements = {
   announcementIcon: document.getElementById('announcement-icon'),
   announcementText: document.getElementById('announcement-text'),
   announcementSubtext: document.getElementById('announcement-subtext'),
-  announcementClose: document.getElementById('announcement-close')
+  announcementClose: document.getElementById('announcement-close'),
+  sleepScreen: document.getElementById('sleep-screen')
 };
 
 const WEATHER_CODES = {
-  0: ['☀️', 'Klar'], 1: ['🌤️', 'Überwiegend klar'], 2: ['⛅', 'Teilweise bewölkt'],
-  3: ['☁️', 'Bewölkt'], 45: ['🌫️', 'Nebel'], 48: ['🌫️', 'Reifnebel'],
-  51: ['🌦️', 'Leichter Nieselregen'], 53: ['🌦️', 'Nieselregen'], 55: ['🌧️', 'Starker Nieselregen'],
-  61: ['🌦️', 'Leichter Regen'], 63: ['🌧️', 'Regen'], 65: ['🌧️', 'Starker Regen'],
-  71: ['🌨️', 'Leichter Schneefall'], 73: ['🌨️', 'Schneefall'], 75: ['❄️', 'Starker Schneefall'],
-  80: ['🌦️', 'Regenschauer'], 81: ['🌧️', 'Kräftige Schauer'], 82: ['⛈️', 'Starke Schauer'],
-  95: ['⛈️', 'Gewitter'], 96: ['⛈️', 'Gewitter mit Hagel'], 99: ['⛈️', 'Starkes Gewitter']
+  0: ['☀️', 'Klar'], 1: ['🌤️', 'Überwiegend klar'], 2: ['⛅', 'Teilweise bewölkt'], 3: ['☁️', 'Bewölkt'],
+  45: ['🌫️', 'Nebel'], 48: ['🌫️', 'Reifnebel'], 51: ['🌦️', 'Leichter Nieselregen'], 53: ['🌦️', 'Nieselregen'],
+  55: ['🌧️', 'Starker Nieselregen'], 61: ['🌦️', 'Leichter Regen'], 63: ['🌧️', 'Regen'], 65: ['🌧️', 'Starker Regen'],
+  71: ['🌨️', 'Leichter Schneefall'], 73: ['🌨️', 'Schneefall'], 75: ['❄️', 'Starker Schneefall'], 80: ['🌦️', 'Regenschauer'],
+  81: ['🌧️', 'Kräftige Schauer'], 82: ['⛈️', 'Starke Schauer'], 95: ['⛈️', 'Gewitter'], 96: ['⛈️', 'Gewitter mit Hagel'], 99: ['⛈️', 'Starkes Gewitter']
 };
 
 function escapeHtml(value = '') {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
 
-function currentNetworkDate() {
+function currentDate() {
   if (!state.networkTimeBase || !state.networkTimeFetchedAt) return new Date();
-  return new Date(state.networkTimeBase.getTime() + (Date.now() - state.networkTimeFetchedAt));
+  return new Date(state.networkTimeBase + (Date.now() - state.networkTimeFetchedAt));
 }
 
-function getBerlinDateParts(date = currentNetworkDate()) {
-  const timeZone = state.config?.time?.timezone || state.config?.schedule?.timezone || 'Europe/Berlin';
+function getBerlinDateParts(date = currentDate()) {
+  const timezone = state.config?.time?.timezone || 'Europe/Berlin';
   return Object.fromEntries(new Intl.DateTimeFormat('de-DE', {
-    timeZone,
+    timeZone: timezone,
     weekday: 'long', year: 'numeric', month: 'long', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
   }).formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
 }
 
 async function syncNetworkTime() {
-  try {
-    const response = await fetch(state.config.time.syncUrl, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    const timestamp = data.unixtime ? Number(data.unixtime) * 1000 : Date.parse(data.datetime);
-    if (!Number.isFinite(timestamp)) throw new Error('Ungültige Netzzeit');
-    state.networkTimeBase = new Date(timestamp);
-    state.networkTimeFetchedAt = Date.now();
-    elements.clockSync.textContent = 'NETZZEIT · EUROPE/BERLIN';
-    elements.clockSync.classList.add('synced');
-  } catch (_error) {
-    elements.clockSync.textContent = 'SYSTEMZEIT · NETZSYNC FEHLGESCHLAGEN';
-    elements.clockSync.classList.remove('synced');
-  }
+  const result = await window.dashboardAPI.getNetworkTime();
+  state.networkTimeBase = Number(result.timestamp);
+  state.networkTimeFetchedAt = Date.now();
+  elements.clockSync.textContent = result.ok
+    ? `NETZZEIT · ${String(result.source).toUpperCase()}`
+    : 'SYSTEMZEIT · NTP DES LINUXCLIENTS';
+  elements.clockSync.classList.toggle('synced', Boolean(result.ok));
 }
 
 function updateClock() {
@@ -79,7 +71,7 @@ function updateClock() {
 
 function timeToMinutes(value) {
   const [hours, minutes] = String(value).split(':').map(Number);
-  return (hours * 60) + minutes;
+  return hours * 60 + minutes;
 }
 
 function showAnnouncement(type, text, subtext, icon, blinking = false, preview = false) {
@@ -88,7 +80,7 @@ function showAnnouncement(type, text, subtext, icon, blinking = false, preview =
   state.previewActive = preview;
   elements.announcementText.textContent = text;
   elements.announcementSubtext.textContent = subtext || '';
-  elements.announcementIcon.textContent = icon || '🍽️';
+  elements.announcementIcon.textContent = icon || '📢';
   elements.announcement.classList.toggle('blinking', blinking);
   elements.announcement.classList.add('visible');
   elements.announcement.setAttribute('aria-hidden', 'false');
@@ -104,21 +96,53 @@ function hideAnnouncement(force = false) {
   elements.announcementClose.style.display = 'none';
 }
 
+function setSleepMode(enabled) {
+  elements.sleepScreen.classList.toggle('visible', enabled);
+  elements.sleepScreen.setAttribute('aria-hidden', enabled ? 'false' : 'true');
+  document.body.classList.toggle('sleeping', enabled);
+  if (elements.browser?.setAudioMuted) elements.browser.setAudioMuted(enabled);
+}
+
 function evaluateSchedule() {
   if (state.previewActive) return;
   const schedule = state.config.schedule;
   const now = getBerlinDateParts();
-  const currentMinutes = Number(now.hour) * 60 + Number(now.minute);
+  const minutes = Number(now.hour) * 60 + Number(now.minute);
   const seconds = Number(now.second);
+  const wake = timeToMinutes(schedule.wakeTime);
+  const sleep = timeToMinutes(schedule.sleepStart);
+  const sleeping = minutes >= sleep || minutes < wake;
+  setSleepMode(sleeping);
+  if (sleeping) {
+    hideAnnouncement();
+    return;
+  }
 
-  if (currentMinutes >= timeToMinutes(schedule.almostLunch) && currentMinutes < timeToMinutes(schedule.lunchStart)) {
-    showAnnouncement('almost-lunch', 'Gleich ist Mittag!', 'Noch wenige Minuten durchhalten', '⏰', true); return;
+  const morningStart = timeToMinutes(schedule.morningStart);
+  if (minutes >= morningStart && minutes < morningStart + Number(schedule.morningDurationMinutes || 5)) {
+    showAnnouncement('morning', 'Guten Morgen!', 'Auf zum Kaffee holen ☕', '☀️');
+    return;
   }
-  if (currentMinutes >= timeToMinutes(schedule.lunchStart) && currentMinutes <= timeToMinutes(schedule.lunchEndDisplayUntil)) {
-    showAnnouncement('lunch', 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️'); return;
+  if (minutes >= timeToMinutes(schedule.almostLunch) && minutes < timeToMinutes(schedule.lunchStart)) {
+    showAnnouncement('almost-lunch', 'Gleich ist Mittag!', 'Noch wenige Minuten durchhalten', '⏰', true);
+    return;
   }
-  if (currentMinutes === timeToMinutes(schedule.breakFinished) && seconds < Number(schedule.breakFinishedDurationSeconds || 60)) {
-    showAnnouncement('finished', 'Mittagspause zu Ende', 'Weiter geht’s!', '💼', true); return;
+  if (minutes >= timeToMinutes(schedule.lunchStart) && minutes <= timeToMinutes(schedule.lunchEndDisplayUntil)) {
+    showAnnouncement('lunch', 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️');
+    return;
+  }
+  if (minutes === timeToMinutes(schedule.breakFinished) && seconds < Number(schedule.breakFinishedDurationSeconds || 60)) {
+    showAnnouncement('finished', 'Mittagspause zu Ende', 'Weiter geht’s!', '💼', true);
+    return;
+  }
+  const almostHome = timeToMinutes(schedule.almostHomeStart);
+  if (minutes >= almostHome && minutes < almostHome + Number(schedule.almostHomeDurationMinutes || 5)) {
+    showAnnouncement('almost-home', 'Jetzt geht’s bald heim!', 'Endspurt – ihr habt es fast geschafft', '🏁');
+    return;
+  }
+  if (minutes >= timeToMinutes(schedule.goodbyeStart) && minutes < sleep) {
+    showAnnouncement('goodbye', 'Schönen Feierabend!', 'Bis morgen 👋', '🌙');
+    return;
   }
   hideAnnouncement();
 }
@@ -172,6 +196,21 @@ async function loadWeather() {
   }
 }
 
+function loadMemeHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistory') || '[]');
+    state.recentMemeUrls = Array.isArray(saved) ? saved : [];
+  } catch (_error) {
+    state.recentMemeUrls = [];
+  }
+}
+
+function rememberMeme(url) {
+  const limit = Math.max(10, Number(state.config.meme.historySize || 50));
+  state.recentMemeUrls = [url, ...state.recentMemeUrls.filter((item) => item !== url)].slice(0, limit);
+  localStorage.setItem('mahlzeitDashMemeHistory', JSON.stringify(state.recentMemeUrls));
+}
+
 function renderMemeFallback() {
   const fallbacks = [
     ['Admin-Weisheit', 'Ein Neustart ist keine Lösung. Aber erstaunlich oft die Lösung.'],
@@ -179,13 +218,13 @@ function renderMemeFallback() {
     ['Netzwerk', 'Es ist immer DNS. Außer wenn es DHCP ist.'],
     ['Büroalltag', 'Dieses Meeting hätte eine E-Mail sein können.']
   ];
-  const item = fallbacks[Math.floor(Date.now() / 1800000) % fallbacks.length];
+  const item = fallbacks[Math.floor(currentDate().getTime() / 1800000) % fallbacks.length];
   elements.memeContent.className = 'meme-content fallback-meme';
   elements.memeContent.innerHTML = `<div><div class="fallback-emoji">😄</div><h2>${escapeHtml(item[0])}</h2><p>${escapeHtml(item[1])}</p></div>`;
 }
 
 function isSafeMeme(meme) {
-  if (!meme?.url || meme.nsfw || meme.spoiler || meme.url === state.lastMemeUrl) return false;
+  if (!meme?.url || meme.nsfw || meme.spoiler || state.recentMemeUrls.includes(meme.url)) return false;
   if (String(meme.subreddit || '').toLowerCase() !== 'deutschememes') return false;
   const url = String(meme.url).toLowerCase();
   if (!['.jpg', '.jpeg', '.png', '.webp'].some((ext) => url.includes(ext))) return false;
@@ -196,20 +235,20 @@ function isSafeMeme(meme) {
 async function loadMeme() {
   elements.memeContent.className = 'meme-content loading-card';
   elements.memeContent.textContent = 'Firmentaugliches deutsches Meme wird gesucht …';
-  const attempts = Math.max(1, Number(state.config.meme.maxAttempts || 12));
+  const attempts = Math.max(1, Number(state.config.meme.maxAttempts || 15));
   try {
-    for (let i = 0; i < attempts; i += 1) {
+    for (let index = 0; index < attempts; index += 1) {
       const response = await fetch('https://meme-api.com/gimme/deutschememes', { cache: 'no-store' });
       if (!response.ok) continue;
       const meme = await response.json();
       if (!isSafeMeme(meme)) continue;
-      state.lastMemeUrl = meme.url;
+      rememberMeme(meme.url);
       const title = escapeHtml(meme.title || 'Deutsches Meme');
       elements.memeContent.className = 'meme-content';
       elements.memeContent.innerHTML = `<img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer"><div class="meme-caption">${title}</div>`;
       return;
     }
-    throw new Error('Kein passendes Meme');
+    throw new Error('Kein neues passendes Meme');
   } catch (_error) {
     renderMemeFallback();
   }
@@ -217,6 +256,7 @@ async function loadMeme() {
 
 async function init() {
   state.config = await window.dashboardAPI.getConfig();
+  loadMemeHistory();
   await syncNetworkTime();
   updateClock();
   evaluateSchedule();

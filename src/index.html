@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://api.open-meteo.com https://meme-api.com; frame-src https: http:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://meme-api.com; frame-src https: http:;">
   <title>Office Operations Dashboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -16,32 +16,22 @@
   <main class="dashboard">
     <header class="topbar glass-shell">
       <div class="brand-block">
-        <div class="brand-mark" aria-hidden="true">
-          <span></span><span></span><span></span>
-        </div>
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <div>
-          <div class="system-line">
-            <span class="live-pulse"></span>
-            <p class="eyebrow">OFFICE OPERATIONS CENTER</p>
-          </div>
+          <div class="system-line"><span class="live-pulse"></span><p class="eyebrow">OFFICE OPERATIONS CENTER</p></div>
           <h1 id="app-title">Info Dashboard</h1>
-          <div class="brand-meta">
-            <span>LIVE TELEMETRY</span>
-            <span>SECURE SESSION</span>
-            <span>TV KIOSK MODE</span>
-          </div>
+          <div class="brand-meta"><span>LIVE TELEMETRY</span><span>SECURE SESSION</span><span>TV KIOSK MODE</span></div>
         </div>
       </div>
 
       <div class="top-status">
-        <div class="mini-stat">
-          <span class="mini-label">SYSTEM</span>
-          <strong><i class="status-led"></i> ONLINE</strong>
-        </div>
+        <button id="lunch-preview" class="text-button" type="button" title="Mahlzeit-Anzeige testen"><span>🍽️</span> Mahlzeit testen</button>
+        <div class="mini-stat"><span class="mini-label">SYSTEM</span><strong><i class="status-led"></i> ONLINE</strong></div>
         <div class="divider"></div>
         <div class="clock-area">
           <div id="date" class="date"></div>
           <div id="clock" class="clock">--:--:--</div>
+          <div class="mini-label">EUROPE/BERLIN</div>
         </div>
       </div>
     </header>
@@ -51,38 +41,19 @@
         <div class="panel-glow"></div>
         <div class="panel-header browser-toolbar">
           <div class="panel-identity">
-            <div class="panel-icon monitoring-icon" aria-hidden="true">
-              <span></span><span></span><span></span>
-            </div>
-            <div>
-              <span class="panel-kicker">PRIMARY VIEW</span>
-              <strong>Device Monitoring</strong>
-            </div>
+            <div class="panel-icon monitoring-icon" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div><span class="panel-kicker">PRIMARY VIEW</span><strong>Device Monitoring</strong></div>
           </div>
-
-          <div class="browser-address">
-            <span class="lock-icon">◆</span>
-            <span>LIVE MONITORING SESSION</span>
-            <i></i>
-          </div>
-
+          <div class="browser-address"><span class="lock-icon">◆</span><span>LIVE MONITORING SESSION</span><i></i></div>
           <div class="browser-actions">
-            <button id="browser-back" type="button" title="Zurück" aria-label="Zurück">←</button>
-            <button id="browser-forward" type="button" title="Vor" aria-label="Vor">→</button>
-            <button id="browser-home" type="button" title="Startseite" aria-label="Startseite">⌂</button>
-            <button id="browser-reload" type="button" title="Neu laden" aria-label="Neu laden">↻</button>
+            <button id="browser-back" type="button" title="Zurück">←</button>
+            <button id="browser-forward" type="button" title="Vor">→</button>
+            <button id="browser-home" type="button" title="Startseite">⌂</button>
+            <button id="browser-reload" type="button" title="Neu laden">↻</button>
           </div>
         </div>
-
-        <div class="browser-statusbar">
-          <div><span class="status-dot"></span> Verbindung aktiv</div>
-          <div class="signal-bars"><span></span><span></span><span></span><span></span></div>
-        </div>
-
-        <div id="browser-loading" class="browser-loading">
-          <div class="loader-core"><span></span><span></span><span></span></div>
-          <p>Monitoring wird verbunden</p>
-        </div>
+        <div class="browser-statusbar"><div><span class="status-dot"></span> Verbindung aktiv</div><div class="signal-bars"><span></span><span></span><span></span><span></span></div></div>
+        <div id="browser-loading" class="browser-loading"><div class="loader-core"><span></span><span></span><span></span></div><p>Monitoring wird verbunden</p></div>
         <webview id="monitoring-browser" allowpopups partition="persist:monitoring"></webview>
       </article>
 
@@ -92,17 +63,11 @@
           <div class="panel-header">
             <div class="panel-identity">
               <div class="panel-icon weather-panel-icon">◌</div>
-              <div>
-                <span class="panel-kicker">LOCAL CONDITIONS</span>
-                <strong>Wetter</strong>
-              </div>
+              <div><span class="panel-kicker">WETTERONLINE</span><strong>Wetter</strong></div>
             </div>
             <span id="weather-location" class="location-chip">–</span>
           </div>
-          <div id="weather-content" class="weather-content loading-card">
-            <div class="skeleton-orbit"></div>
-            Wetterdaten werden geladen
-          </div>
+          <div id="weather-content" class="weather-content loading-card">WetterOnline wird geladen …</div>
         </article>
 
         <article class="panel meme-panel premium-panel">
@@ -110,17 +75,11 @@
           <div class="panel-header">
             <div class="panel-identity">
               <div class="panel-icon meme-panel-icon">M</div>
-              <div>
-                <span class="panel-kicker">DAILY SIGNAL</span>
-                <strong>Meme des Tages</strong>
-              </div>
+              <div><span class="panel-kicker">DEUTSCHER MEME-MIX</span><strong>Meme der halben Stunde</strong></div>
             </div>
             <button id="meme-refresh" class="text-button" type="button"><span>↻</span> Neu laden</button>
           </div>
-          <div id="meme-content" class="meme-content loading-card">
-            <div class="skeleton-orbit"></div>
-            Meme wird geladen
-          </div>
+          <div id="meme-content" class="meme-content loading-card"><div class="skeleton-orbit"></div>Meme wird geladen</div>
         </article>
       </aside>
     </section>
@@ -136,6 +95,7 @@
     <div class="announcement-grid"></div>
     <div class="announcement-ring ring-one"></div>
     <div class="announcement-ring ring-two"></div>
+    <button id="announcement-close" class="text-button" type="button" style="position:absolute;right:24px;top:24px;z-index:20;display:none">Test schließen ×</button>
     <div class="announcement-inner">
       <div class="announcement-label">OFFICE BROADCAST</div>
       <div id="announcement-icon" class="announcement-icon">🍽️</div>

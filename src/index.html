@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://api.open-meteo.com https://meme-api.com; frame-src https: http:;">
+  <title>Office Info Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="dashboard">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">OFFICE LIVE</p>
+        <h1 id="app-title">Info Dashboard</h1>
+      </div>
+      <div class="clock-area">
+        <div id="date" class="date"></div>
+        <div id="clock" class="clock">--:--:--</div>
+      </div>
+    </header>
+
+    <section class="content-grid">
+      <article class="panel browser-panel">
+        <div class="panel-header browser-toolbar">
+          <div>
+            <span class="status-dot"></span>
+            <strong>Device Monitoring</strong>
+          </div>
+          <div class="browser-actions">
+            <button id="browser-back" type="button" title="Zurück">←</button>
+            <button id="browser-forward" type="button" title="Vor">→</button>
+            <button id="browser-home" type="button" title="Startseite">⌂</button>
+            <button id="browser-reload" type="button" title="Neu laden">↻</button>
+          </div>
+        </div>
+        <div id="browser-loading" class="browser-loading">Monitoring wird geladen …</div>
+        <webview id="monitoring-browser" allowpopups partition="persist:monitoring"></webview>
+      </article>
+
+      <aside class="sidebar">
+        <article class="panel weather-panel">
+          <div class="panel-header">
+            <strong>Wetter</strong>
+            <span id="weather-location">–</span>
+          </div>
+          <div id="weather-content" class="weather-content loading-card">Wetter wird geladen …</div>
+        </article>
+
+        <article class="panel meme-panel">
+          <div class="panel-header">
+            <strong>Meme des Tages</strong>
+            <button id="meme-refresh" class="text-button" type="button">Neu</button>
+          </div>
+          <div id="meme-content" class="meme-content loading-card">Meme wird geladen …</div>
+        </article>
+      </aside>
+    </section>
+  </main>
+
+  <section id="announcement" class="announcement" aria-live="assertive" aria-hidden="true">
+    <div class="announcement-inner">
+      <div id="announcement-icon" class="announcement-icon">🍽️</div>
+      <div id="announcement-text" class="announcement-text"></div>
+      <div id="announcement-subtext" class="announcement-subtext"></div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

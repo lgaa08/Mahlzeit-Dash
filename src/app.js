@@ -4,7 +4,8 @@ const state = {
   previewActive: false,
   networkTimeBase: null,
   networkTimeFetchedAt: null,
-  recentMemeUrls: []
+  memeHistory: { urls: [], postIds: [], sha256: [], dHashes: [] },
+  hasVisibleMeme: false
 };
 
 const elements = {
@@ -57,9 +58,7 @@ async function syncNetworkTime() {
   const result = await window.dashboardAPI.getNetworkTime();
   state.networkTimeBase = Number(result.timestamp);
   state.networkTimeFetchedAt = Date.now();
-  elements.clockSync.textContent = result.ok
-    ? `NETZZEIT · ${String(result.source).toUpperCase()}`
-    : 'SYSTEMZEIT · NTP DES LINUXCLIENTS';
+  elements.clockSync.textContent = result.ok ? `NETZZEIT · ${String(result.source).toUpperCase()}` : 'SYSTEMZEIT · NTP DES LINUXCLIENTS';
   elements.clockSync.classList.toggle('synced', Boolean(result.ok));
 }
 
@@ -113,36 +112,27 @@ function evaluateSchedule() {
   const sleep = timeToMinutes(schedule.sleepStart);
   const sleeping = minutes >= sleep || minutes < wake;
   setSleepMode(sleeping);
-  if (sleeping) {
-    hideAnnouncement();
-    return;
-  }
+  if (sleeping) { hideAnnouncement(); return; }
 
   const morningStart = timeToMinutes(schedule.morningStart);
   if (minutes >= morningStart && minutes < morningStart + Number(schedule.morningDurationMinutes || 5)) {
-    showAnnouncement('morning', 'Guten Morgen!', 'Auf zum Kaffee holen ☕', '☀️');
-    return;
+    showAnnouncement('morning', 'Guten Morgen!', 'Auf zum Kaffee holen ☕', '☀️'); return;
   }
   if (minutes >= timeToMinutes(schedule.almostLunch) && minutes < timeToMinutes(schedule.lunchStart)) {
-    showAnnouncement('almost-lunch', 'Gleich ist Mittag!', 'Noch wenige Minuten durchhalten', '⏰', true);
-    return;
+    showAnnouncement('almost-lunch', 'Gleich ist Mittag!', 'Noch wenige Minuten durchhalten', '⏰', true); return;
   }
   if (minutes >= timeToMinutes(schedule.lunchStart) && minutes <= timeToMinutes(schedule.lunchEndDisplayUntil)) {
-    showAnnouncement('lunch', 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️');
-    return;
+    showAnnouncement('lunch', 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️'); return;
   }
   if (minutes === timeToMinutes(schedule.breakFinished) && seconds < Number(schedule.breakFinishedDurationSeconds || 60)) {
-    showAnnouncement('finished', 'Mittagspause zu Ende', 'Weiter geht’s!', '💼', true);
-    return;
+    showAnnouncement('finished', 'Mittagspause zu Ende', 'Weiter geht’s!', '💼', true); return;
   }
   const almostHome = timeToMinutes(schedule.almostHomeStart);
   if (minutes >= almostHome && minutes < almostHome + Number(schedule.almostHomeDurationMinutes || 5)) {
-    showAnnouncement('almost-home', 'Jetzt geht’s bald heim!', 'Endspurt – ihr habt es fast geschafft', '🏁');
-    return;
+    showAnnouncement('almost-home', 'Jetzt geht’s bald heim!', 'Endspurt – ihr habt es fast geschafft', '🏁'); return;
   }
   if (minutes >= timeToMinutes(schedule.goodbyeStart) && minutes < sleep) {
-    showAnnouncement('goodbye', 'Schönen Feierabend!', 'Bis morgen 👋', '🌙');
-    return;
+    showAnnouncement('goodbye', 'Schönen Feierabend!', 'Bis morgen 👋', '🌙'); return;
   }
   hideAnnouncement();
 }
@@ -196,36 +186,70 @@ async function loadWeather() {
   }
 }
 
+function uniqueStrings(values) {
+  return [...new Set((Array.isArray(values) ? values : []).filter((value) => typeof value === 'string' && value))];
+}
+
 function loadMemeHistory() {
   try {
-    const saved = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistory') || '[]');
-    state.recentMemeUrls = Array.isArray(saved) ? saved : [];
+    const raw = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistoryV2') || '{}');
+    state.memeHistory = {
+      urls: uniqueStrings(raw.urls),
+      postIds: uniqueStrings(raw.postIds),
+      sha256: uniqueStrings(raw.sha256),
+      dHashes: uniqueStrings(raw.dHashes)
+    };
+    const oldUrls = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistory') || '[]');
+    state.memeHistory.urls = uniqueStrings([...state.memeHistory.urls, ...(Array.isArray(oldUrls) ? oldUrls : [])]);
+    saveMemeHistory();
   } catch (_error) {
-    state.recentMemeUrls = [];
+    state.memeHistory = { urls: [], postIds: [], sha256: [], dHashes: [] };
   }
 }
 
-function rememberMeme(url) {
-  const limit = Math.max(10, Number(state.config.meme.historySize || 50));
-  state.recentMemeUrls = [url, ...state.recentMemeUrls.filter((item) => item !== url)].slice(0, limit);
-  localStorage.setItem('mahlzeitDashMemeHistory', JSON.stringify(state.recentMemeUrls));
+function saveMemeHistory() {
+  localStorage.setItem('mahlzeitDashMemeHistoryV2', JSON.stringify(state.memeHistory));
 }
 
-function renderMemeFallback() {
-  const fallbacks = [
-    ['Admin-Weisheit', 'Ein Neustart ist keine Lösung. Aber erstaunlich oft die Lösung.'],
-    ['Monitoring', 'Alles grün. Das macht uns erst recht misstrauisch.'],
-    ['Netzwerk', 'Es ist immer DNS. Außer wenn es DHCP ist.'],
-    ['Büroalltag', 'Dieses Meeting hätte eine E-Mail sein können.']
-  ];
-  const item = fallbacks[Math.floor(currentDate().getTime() / 1800000) % fallbacks.length];
-  elements.memeContent.className = 'meme-content fallback-meme';
-  elements.memeContent.innerHTML = `<div><div class="fallback-emoji">😄</div><h2>${escapeHtml(item[0])}</h2><p>${escapeHtml(item[1])}</p></div>`;
+function extractPostId(meme) {
+  const explicit = String(meme?.postLink || meme?.postId || '');
+  const match = explicit.match(/comments\/([a-z0-9]+)/i);
+  return match?.[1] || explicit || '';
 }
 
-function isSafeMeme(meme) {
-  if (!meme?.url || meme.nsfw || meme.spoiler || state.recentMemeUrls.includes(meme.url)) return false;
+function hammingDistanceHex(a, b) {
+  try {
+    let value = BigInt(`0x${a}`) ^ BigInt(`0x${b}`);
+    let distance = 0;
+    while (value) { distance += Number(value & 1n); value >>= 1n; }
+    return distance;
+  } catch (_error) {
+    return 64;
+  }
+}
+
+function isKnownFingerprint(fingerprint) {
+  if (!fingerprint) return true;
+  if (state.memeHistory.sha256.includes(fingerprint.sha256)) return true;
+  const threshold = Math.max(0, Number(state.config.meme.perceptualHashDistance ?? 5));
+  return state.memeHistory.dHashes.some((known) => hammingDistanceHex(known, fingerprint.dHash) <= threshold);
+}
+
+function rememberMeme(meme, fingerprint) {
+  const postId = extractPostId(meme);
+  state.memeHistory.urls = uniqueStrings([...state.memeHistory.urls, meme.url]);
+  state.memeHistory.postIds = uniqueStrings([...state.memeHistory.postIds, postId]);
+  state.memeHistory.sha256 = uniqueStrings([...state.memeHistory.sha256, fingerprint.sha256]);
+  state.memeHistory.dHashes = uniqueStrings([...state.memeHistory.dHashes, fingerprint.dHash]);
+  saveMemeHistory();
+}
+
+function isSafeMemeMetadata(meme) {
+  if (!meme?.url || meme.nsfw || meme.spoiler) return false;
   if (String(meme.subreddit || '').toLowerCase() !== 'deutschememes') return false;
+  if (state.memeHistory.urls.includes(meme.url)) return false;
+  const postId = extractPostId(meme);
+  if (postId && state.memeHistory.postIds.includes(postId)) return false;
   const url = String(meme.url).toLowerCase();
   if (!['.jpg', '.jpeg', '.png', '.webp'].some((ext) => url.includes(ext))) return false;
   const searchable = `${meme.title || ''} ${meme.postLink || ''}`.toLowerCase();
@@ -233,24 +257,41 @@ function isSafeMeme(meme) {
 }
 
 async function loadMeme() {
-  elements.memeContent.className = 'meme-content loading-card';
-  elements.memeContent.textContent = 'Firmentaugliches deutsches Meme wird gesucht …';
-  const attempts = Math.max(1, Number(state.config.meme.maxAttempts || 15));
+  const previousHtml = elements.memeContent.innerHTML;
+  if (!state.hasVisibleMeme) {
+    elements.memeContent.className = 'meme-content loading-card';
+    elements.memeContent.textContent = 'Neues, noch nie angezeigtes Meme wird gesucht …';
+  }
+  const attempts = Math.max(1, Number(state.config.meme.maxAttempts || 25));
   try {
     for (let index = 0; index < attempts; index += 1) {
       const response = await fetch('https://meme-api.com/gimme/deutschememes', { cache: 'no-store' });
       if (!response.ok) continue;
       const meme = await response.json();
-      if (!isSafeMeme(meme)) continue;
-      rememberMeme(meme.url);
+      if (!isSafeMemeMetadata(meme)) continue;
+      let fingerprint;
+      try {
+        fingerprint = await window.dashboardAPI.fingerprintImage(meme.url);
+      } catch (_error) {
+        continue;
+      }
+      if (isKnownFingerprint(fingerprint)) continue;
+      rememberMeme(meme, fingerprint);
       const title = escapeHtml(meme.title || 'Deutsches Meme');
       elements.memeContent.className = 'meme-content';
       elements.memeContent.innerHTML = `<img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer"><div class="meme-caption">${title}</div>`;
+      state.hasVisibleMeme = true;
       return;
     }
-    throw new Error('Kein neues passendes Meme');
+    throw new Error('Kein wirklich neues Meme gefunden');
   } catch (_error) {
-    renderMemeFallback();
+    if (state.hasVisibleMeme) {
+      elements.memeContent.className = 'meme-content';
+      elements.memeContent.innerHTML = previousHtml;
+      return;
+    }
+    elements.memeContent.className = 'meme-content fallback-meme';
+    elements.memeContent.innerHTML = '<div><div class="fallback-emoji">🛡️</div><h2>Noch kein neues Meme</h2><p>Alle gefundenen Beiträge waren bereits bekannt oder wurden vom Inhaltsfilter blockiert.</p></div>';
   }
 }
 

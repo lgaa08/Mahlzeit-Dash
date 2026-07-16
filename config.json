@@ -9,7 +9,32 @@
   },
   "meme": {
     "enabled": true,
-    "refreshMinutes": 360
+    "refreshMinutes": 30,
+    "sources": [
+      "memes",
+      "wholesomememes",
+      "AdviceAnimals",
+      "sysadminhumor"
+    ],
+    "blockedKeywords": [
+      "nsfw",
+      "nude",
+      "nudity",
+      "porn",
+      "sex",
+      "sexy",
+      "onlyfans",
+      "boobs",
+      "tits",
+      "ass",
+      "dick",
+      "penis",
+      "vagina",
+      "fetish",
+      "gore",
+      "suicide"
+    ],
+    "maxAttempts": 6
   },
   "schedule": {
     "timezone": "Europe/Berlin",

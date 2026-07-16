@@ -9,28 +9,35 @@
   },
   "time": {
     "timezone": "Europe/Berlin",
-    "syncUrl": "https://worldtimeapi.org/api/timezone/Europe/Berlin",
     "resyncMinutes": 15
   },
   "meme": {
     "enabled": true,
     "refreshMinutes": 30,
     "sources": ["deutschememes"],
+    "historySize": 50,
     "blockedKeywords": [
-      "nsfw", "nude", "nudity", "porn", "porno", "sex", "sexy", "onlyfans",
-      "boobs", "tits", "ass", "dick", "penis", "vagina", "fetish", "gore",
-      "suicide", "selbstmord", "nackt", "nacktheit", "18+", "xxx", "erotik",
-      "gewalt", "blut", "leiche"
+      "nsfw", "nude", "nudity", "nackt", "nacktheit", "porn", "porno", "sex", "sexy",
+      "erotik", "erotic", "onlyfans", "boobs", "tits", "brüste", "brust", "ass", "arsch",
+      "dick", "penis", "vagina", "fetish", "fetisch", "gore", "blood", "blut", "leiche",
+      "corpse", "suicide", "selbstmord", "tötung", "mord", "enthaupt", "gewalt"
     ],
-    "maxAttempts": 12
+    "maxAttempts": 15
   },
   "schedule": {
     "timezone": "Europe/Berlin",
+    "wakeTime": "07:30",
+    "morningStart": "08:00",
+    "morningDurationMinutes": 5,
     "almostLunch": "11:50",
     "lunchStart": "11:55",
     "lunchEndDisplayUntil": "12:50",
     "breakFinished": "13:00",
-    "breakFinishedDurationSeconds": 60
+    "breakFinishedDurationSeconds": 60,
+    "almostHomeStart": "16:00",
+    "almostHomeDurationMinutes": 5,
+    "goodbyeStart": "16:50",
+    "sleepStart": "17:00"
   },
   "kiosk": true,
   "allowDevTools": false

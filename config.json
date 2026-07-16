@@ -1,39 +1,28 @@
 {
-  "appTitle": "Office Info Dashboard",
   "monitoringUrl": "https://example.org",
   "weather": {
     "locationName": "Kempten (Allgäu)",
-    "provider": "WetterOnline",
-    "pageUrl": "https://www.wetteronline.de/wetter/kempten",
-    "timezone": "Europe/Berlin"
+    "latitude": 47.7267,
+    "longitude": 10.3139,
+    "timezone": "Europe/Berlin",
+    "refreshMinutes": 10
+  },
+  "time": {
+    "timezone": "Europe/Berlin",
+    "syncUrl": "https://worldtimeapi.org/api/timezone/Europe/Berlin",
+    "resyncMinutes": 15
   },
   "meme": {
     "enabled": true,
     "refreshMinutes": 30,
-    "sources": [
-      "ich_iel",
-      "deutschememes",
-      "GermanMemes"
-    ],
+    "sources": ["deutschememes"],
     "blockedKeywords": [
-      "nsfw",
-      "nude",
-      "nudity",
-      "porn",
-      "sex",
-      "sexy",
-      "onlyfans",
-      "boobs",
-      "tits",
-      "ass",
-      "dick",
-      "penis",
-      "vagina",
-      "fetish",
-      "gore",
-      "suicide"
+      "nsfw", "nude", "nudity", "porn", "porno", "sex", "sexy", "onlyfans",
+      "boobs", "tits", "ass", "dick", "penis", "vagina", "fetish", "gore",
+      "suicide", "selbstmord", "nackt", "nacktheit", "18+", "xxx", "erotik",
+      "gewalt", "blut", "leiche"
     ],
-    "maxAttempts": 8
+    "maxAttempts": 12
   },
   "schedule": {
     "timezone": "Europe/Berlin",

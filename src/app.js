@@ -2,7 +2,8 @@ const state = {
   config: null,
   memeTimer: null,
   activeAnnouncement: null,
-  lastMemeUrl: null
+  lastMemeUrl: null,
+  previewActive: false
 };
 
 const elements = {
@@ -17,36 +18,23 @@ const elements = {
   announcement: document.getElementById('announcement'),
   announcementIcon: document.getElementById('announcement-icon'),
   announcementText: document.getElementById('announcement-text'),
-  announcementSubtext: document.getElementById('announcement-subtext')
+  announcementSubtext: document.getElementById('announcement-subtext'),
+  announcementClose: document.getElementById('announcement-close')
 };
 
-const WEATHER_CODES = {
-  0: ['☀️', 'Klar'],
-  1: ['🌤️', 'Überwiegend klar'],
-  2: ['⛅', 'Teilweise bewölkt'],
-  3: ['☁️', 'Bewölkt'],
-  45: ['🌫️', 'Nebel'],
-  48: ['🌫️', 'Reifnebel'],
-  51: ['🌦️', 'Leichter Nieselregen'],
-  53: ['🌦️', 'Nieselregen'],
-  55: ['🌧️', 'Starker Nieselregen'],
-  61: ['🌦️', 'Leichter Regen'],
-  63: ['🌧️', 'Regen'],
-  65: ['🌧️', 'Starker Regen'],
-  71: ['🌨️', 'Leichter Schneefall'],
-  73: ['🌨️', 'Schneefall'],
-  75: ['❄️', 'Starker Schneefall'],
-  80: ['🌦️', 'Regenschauer'],
-  81: ['🌧️', 'Kräftige Regenschauer'],
-  82: ['⛈️', 'Starke Regenschauer'],
-  95: ['⛈️', 'Gewitter'],
-  96: ['⛈️', 'Gewitter mit Hagel'],
-  99: ['⛈️', 'Starkes Gewitter mit Hagel']
-};
+function escapeHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
 
 function getBerlinDateParts(date = new Date()) {
-  const formatter = new Intl.DateTimeFormat('de-DE', {
-    timeZone: state.config?.schedule?.timezone || 'Europe/Berlin',
+  const timeZone = state.config?.schedule?.timezone || 'Europe/Berlin';
+  const parts = new Intl.DateTimeFormat('de-DE', {
+    timeZone,
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -54,18 +42,16 @@ function getBerlinDateParts(date = new Date()) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false
-  });
+    hourCycle: 'h23'
+  }).formatToParts(date);
 
   return Object.fromEntries(
-    formatter.formatToParts(date)
-      .filter((part) => part.type !== 'literal')
-      .map((part) => [part.type, part.value])
+    parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value])
   );
 }
 
 function timeToMinutes(value) {
-  const [hours, minutes] = value.split(':').map(Number);
+  const [hours, minutes] = String(value).split(':').map(Number);
   return (hours * 60) + minutes;
 }
 
@@ -75,33 +61,38 @@ function updateClock() {
   elements.date.textContent = `${parts.weekday}, ${parts.day}. ${parts.month} ${parts.year}`;
 }
 
-function showAnnouncement(type, text, subtext, icon, blinking = false) {
-  if (state.activeAnnouncement === type) return;
+function showAnnouncement(type, text, subtext, icon, blinking = false, preview = false) {
+  if (state.activeAnnouncement === type && !preview) return;
   state.activeAnnouncement = type;
+  state.previewActive = preview;
   elements.announcementText.textContent = text;
   elements.announcementSubtext.textContent = subtext || '';
   elements.announcementIcon.textContent = icon || '🍽️';
   elements.announcement.classList.toggle('blinking', blinking);
   elements.announcement.classList.add('visible');
   elements.announcement.setAttribute('aria-hidden', 'false');
+  elements.announcementClose.style.display = preview ? 'block' : 'none';
 }
 
-function hideAnnouncement() {
-  if (!state.activeAnnouncement) return;
+function hideAnnouncement(force = false) {
+  if (state.previewActive && !force) return;
   state.activeAnnouncement = null;
+  state.previewActive = false;
   elements.announcement.classList.remove('visible', 'blinking');
   elements.announcement.setAttribute('aria-hidden', 'true');
+  elements.announcementClose.style.display = 'none';
 }
 
 function evaluateSchedule() {
+  if (state.previewActive) return;
+
   const schedule = state.config.schedule;
   const now = getBerlinDateParts();
   const currentMinutes = (Number(now.hour) * 60) + Number(now.minute);
   const seconds = Number(now.second);
-
   const almostLunch = timeToMinutes(schedule.almostLunch);
   const lunchStart = timeToMinutes(schedule.lunchStart);
-  const lunchEndDisplayUntil = timeToMinutes(schedule.lunchEndDisplayUntil);
+  const lunchEnd = timeToMinutes(schedule.lunchEndDisplayUntil);
   const breakFinished = timeToMinutes(schedule.breakFinished);
   const finishedDuration = Math.max(1, Number(schedule.breakFinishedDurationSeconds || 60));
 
@@ -110,8 +101,8 @@ function evaluateSchedule() {
     return;
   }
 
-  if (currentMinutes >= lunchStart && currentMinutes <= lunchEndDisplayUntil) {
-    showAnnouncement('lunch', 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️', false);
+  if (currentMinutes >= lunchStart && currentMinutes <= lunchEnd) {
+    showAnnouncement('lunch', 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️');
     return;
   }
 
@@ -121,6 +112,17 @@ function evaluateSchedule() {
   }
 
   hideAnnouncement();
+}
+
+function setupLunchPreview() {
+  document.getElementById('lunch-preview').addEventListener('click', () => {
+    showAnnouncement('preview-lunch', 'Mahlzeit!', 'Testansicht · Lasst es euch schmecken', '🍽️', false, true);
+  });
+
+  elements.announcementClose.addEventListener('click', () => {
+    hideAnnouncement(true);
+    evaluateSchedule();
+  });
 }
 
 function setupBrowser() {
@@ -141,64 +143,35 @@ function setupBrowser() {
     browser.loadURL(event.url);
   });
 
-  document.getElementById('browser-back').addEventListener('click', () => {
-    if (browser.canGoBack()) browser.goBack();
-  });
-  document.getElementById('browser-forward').addEventListener('click', () => {
-    if (browser.canGoForward()) browser.goForward();
-  });
+  document.getElementById('browser-back').addEventListener('click', () => browser.canGoBack() && browser.goBack());
+  document.getElementById('browser-forward').addEventListener('click', () => browser.canGoForward() && browser.goForward());
   document.getElementById('browser-home').addEventListener('click', () => browser.loadURL(homeUrl));
   document.getElementById('browser-reload').addEventListener('click', () => browser.reload());
 }
 
-async function loadWeather() {
-  const { latitude, longitude, locationName, timezone } = state.config.weather;
-  elements.weatherLocation.textContent = locationName;
+function loadWeatherOnline() {
+  const weather = state.config.weather;
+  elements.weatherLocation.textContent = weather.locationName;
+  elements.weatherContent.className = 'weather-content';
+  elements.weatherContent.innerHTML = '';
 
-  const params = new URLSearchParams({
-    latitude: String(latitude),
-    longitude: String(longitude),
-    timezone,
-    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m',
-    daily: 'temperature_2m_max,temperature_2m_min,precipitation_probability_max',
-    forecast_days: '1'
+  const weatherView = document.createElement('webview');
+  weatherView.id = 'weather-online-browser';
+  weatherView.setAttribute('partition', 'persist:weatheronline');
+  weatherView.setAttribute('src', weather.pageUrl);
+  weatherView.setAttribute('allowpopups', 'false');
+  weatherView.style.width = '100%';
+  weatherView.style.height = '100%';
+  weatherView.style.display = 'flex';
+  weatherView.style.background = '#fff';
+
+  weatherView.addEventListener('did-fail-load', (event) => {
+    if (event.errorCode === -3) return;
+    elements.weatherContent.innerHTML = `<div class="error-card">WetterOnline konnte nicht geladen werden.<br>${escapeHtml(event.errorDescription)}</div>`;
   });
 
-  try {
-    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    const current = data.current;
-    const [icon, description] = WEATHER_CODES[current.weather_code] || ['🌡️', 'Unbekannt'];
-
-    elements.weatherContent.className = 'weather-content';
-    elements.weatherContent.innerHTML = `
-      <div class="weather-current">
-        <div class="weather-icon">${icon}</div>
-        <div>
-          <div class="weather-temp">${Math.round(current.temperature_2m)}°</div>
-          <div class="weather-description">${description} · gefühlt ${Math.round(current.apparent_temperature)}°C</div>
-        </div>
-      </div>
-      <div class="weather-details">
-        <div class="weather-detail"><span>Luftfeuchte</span><strong>${Math.round(current.relative_humidity_2m)} %</strong></div>
-        <div class="weather-detail"><span>Wind</span><strong>${Math.round(current.wind_speed_10m)} km/h</strong></div>
-        <div class="weather-detail"><span>Heute</span><strong>${Math.round(data.daily.temperature_2m_min[0])}–${Math.round(data.daily.temperature_2m_max[0])} °C</strong></div>
-      </div>
-    `;
-  } catch (error) {
-    elements.weatherContent.className = 'weather-content error-card';
-    elements.weatherContent.textContent = `Wetter aktuell nicht verfügbar. ${error.message}`;
-  }
-}
-
-function escapeHtml(value = '') {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+  weatherView.addEventListener('new-window', (event) => event.preventDefault());
+  elements.weatherContent.appendChild(weatherView);
 }
 
 function renderMemeFallback() {
@@ -212,49 +185,44 @@ function renderMemeFallback() {
     ['Büroalltag', 'Dieses Meeting hätte eine E-Mail sein können.'],
     ['Montag', 'Authentifizierung fehlgeschlagen: Motivation nicht gefunden.']
   ];
-  const halfHourSlot = Math.floor(Date.now() / (30 * 60 * 1000));
-  const item = fallbacks[halfHourSlot % fallbacks.length];
+  const slot = Math.floor(Date.now() / (30 * 60 * 1000));
+  const item = fallbacks[slot % fallbacks.length];
   elements.memeContent.className = 'meme-content';
   elements.memeContent.innerHTML = `
     <div class="loading-card" style="height:100%;padding:28px;text-align:center">
-      <div>
-        <div style="font-size:52px">😄</div>
-        <h2 style="font-size:30px;margin:14px 0 8px">${escapeHtml(item[0])}</h2>
-        <p style="color:#aab2c0;font-size:20px;margin:0">${escapeHtml(item[1])}</p>
-      </div>
-    </div>
-  `;
+      <div><div style="font-size:52px">😄</div><h2 style="font-size:30px;margin:14px 0 8px">${escapeHtml(item[0])}</h2><p style="color:#aab2c0;font-size:20px;margin:0">${escapeHtml(item[1])}</p></div>
+    </div>`;
 }
 
-function isSafeMeme(meme) {
-  if (!meme || !meme.url || meme.nsfw || meme.spoiler) return false;
-  if (meme.url === state.lastMemeUrl) return false;
+function isSafeGermanMeme(meme) {
+  if (!meme?.url || meme.nsfw || meme.spoiler || meme.url === state.lastMemeUrl) return false;
+  const allowedSources = (state.config.meme.sources || []).map((source) => source.toLowerCase());
+  if (!allowedSources.includes(String(meme.subreddit || '').toLowerCase())) return false;
 
   const imageUrl = String(meme.url).toLowerCase();
-  const allowedImage = ['.jpg', '.jpeg', '.png', '.webp'].some((extension) => imageUrl.includes(extension));
-  if (!allowedImage) return false;
+  if (!['.jpg', '.jpeg', '.png', '.webp'].some((ext) => imageUrl.includes(ext))) return false;
 
-  const blockedKeywords = state.config.meme.blockedKeywords || [];
-  const searchableText = `${meme.title || ''} ${meme.postLink || ''} ${meme.subreddit || ''}`.toLowerCase();
-  return !blockedKeywords.some((keyword) => searchableText.includes(String(keyword).toLowerCase()));
+  const searchable = `${meme.title || ''} ${meme.postLink || ''}`.toLowerCase();
+  return !(state.config.meme.blockedKeywords || []).some((word) => searchable.includes(String(word).toLowerCase()));
 }
 
-async function fetchSafeMeme() {
-  const sources = state.config.meme.sources?.length
-    ? state.config.meme.sources
-    : ['memes', 'wholesomememes', 'AdviceAnimals', 'sysadminhumor'];
-  const maxAttempts = Math.max(1, Number(state.config.meme.maxAttempts || 6));
+async function fetchSafeGermanMeme() {
+  const sources = state.config.meme.sources || ['ich_iel', 'deutschememes', 'GermanMemes'];
+  const maxAttempts = Math.max(1, Number(state.config.meme.maxAttempts || 8));
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const source = sources[Math.floor(Math.random() * sources.length)];
-    const response = await fetch(`https://meme-api.com/gimme/${encodeURIComponent(source)}`, { cache: 'no-store' });
-    if (!response.ok) continue;
-
-    const meme = await response.json();
-    if (isSafeMeme(meme)) return meme;
+    try {
+      const response = await fetch(`https://meme-api.com/gimme/${encodeURIComponent(source)}`, { cache: 'no-store' });
+      if (!response.ok) continue;
+      const meme = await response.json();
+      if (isSafeGermanMeme(meme)) return meme;
+    } catch (_error) {
+      // Nächste deutsche Quelle versuchen.
+    }
   }
 
-  throw new Error('Kein firmentaugliches Meme gefunden');
+  throw new Error('Kein geeignetes deutsches Meme gefunden');
 }
 
 async function loadMeme() {
@@ -264,19 +232,15 @@ async function loadMeme() {
   }
 
   elements.memeContent.className = 'meme-content loading-card';
-  elements.memeContent.textContent = 'Firmentaugliches Meme wird gesucht …';
+  elements.memeContent.textContent = 'Deutsches, firmentaugliches Meme wird gesucht …';
 
   try {
-    const meme = await fetchSafeMeme();
+    const meme = await fetchSafeGermanMeme();
     state.lastMemeUrl = meme.url;
-    const title = escapeHtml(meme.title || 'Meme');
-    const source = escapeHtml(meme.subreddit ? `r/${meme.subreddit}` : 'Meme');
-
+    const title = escapeHtml(meme.title || 'Deutsches Meme');
+    const source = escapeHtml(`r/${meme.subreddit}`);
     elements.memeContent.className = 'meme-content';
-    elements.memeContent.innerHTML = `
-      <img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer">
-      <div class="meme-caption">${title} · ${source}</div>
-    `;
+    elements.memeContent.innerHTML = `<img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer"><div class="meme-caption">${title} · ${source}</div>`;
   } catch (_error) {
     renderMemeFallback();
   }
@@ -289,8 +253,9 @@ async function init() {
 
   updateClock();
   evaluateSchedule();
+  setupLunchPreview();
   setupBrowser();
-  loadWeather();
+  loadWeatherOnline();
   loadMeme();
 
   setInterval(() => {
@@ -298,14 +263,15 @@ async function init() {
     evaluateSchedule();
   }, 1000);
 
-  setInterval(loadWeather, 10 * 60 * 1000);
+  setInterval(loadWeatherOnline, 30 * 60 * 1000);
   const refreshMinutes = Math.max(10, Number(state.config.meme.refreshMinutes || 30));
   state.memeTimer = setInterval(loadMeme, refreshMinutes * 60 * 1000);
 
   document.getElementById('meme-refresh').addEventListener('click', loadMeme);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'F5') elements.browser.reload();
-    if (event.key === 'F11' || event.key === 'Escape') event.preventDefault();
+    if (event.key === 'Escape' && state.previewActive) hideAnnouncement(true);
+    if (event.key === 'F11') event.preventDefault();
   });
 }
 

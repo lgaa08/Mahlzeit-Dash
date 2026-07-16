@@ -3,18 +3,17 @@
   "monitoringUrl": "https://example.org",
   "weather": {
     "locationName": "Kempten (Allgäu)",
-    "latitude": 47.7267,
-    "longitude": 10.3139,
+    "provider": "WetterOnline",
+    "pageUrl": "https://www.wetteronline.de/wetter/kempten",
     "timezone": "Europe/Berlin"
   },
   "meme": {
     "enabled": true,
     "refreshMinutes": 30,
     "sources": [
-      "memes",
-      "wholesomememes",
-      "AdviceAnimals",
-      "sysadminhumor"
+      "ich_iel",
+      "deutschememes",
+      "GermanMemes"
     ],
     "blockedKeywords": [
       "nsfw",
@@ -34,7 +33,7 @@
       "gore",
       "suicide"
     ],
-    "maxAttempts": 6
+    "maxAttempts": 8
   },
   "schedule": {
     "timezone": "Europe/Berlin",

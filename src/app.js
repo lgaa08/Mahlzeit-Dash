@@ -2,12 +2,14 @@ const state = {
   config: null,
   activeAnnouncement: null,
   previewActive: false,
+  dismissedAnnouncement: null,
   networkTimeBase: null,
   networkTimeFetchedAt: null,
   memeHistory: { urls: [], postIds: [], sha256: [], dHashes: [] },
   hasVisibleMeme: false,
   browserReady: false,
-  pendingBrowserMute: false
+  pendingBrowserMute: false,
+  sleepMode: null
 };
 
 const elements = {
@@ -76,6 +78,7 @@ function timeToMinutes(value) {
 }
 
 function showAnnouncement(type, text, subtext, icon, blinking = false, preview = false) {
+  if (state.dismissedAnnouncement === type && !preview) return;
   if (state.activeAnnouncement === type && !preview) return;
   state.activeAnnouncement = type;
   state.previewActive = preview;
@@ -85,13 +88,25 @@ function showAnnouncement(type, text, subtext, icon, blinking = false, preview =
   elements.announcement.classList.toggle('blinking', blinking);
   elements.announcement.classList.add('visible');
   elements.announcement.setAttribute('aria-hidden', 'false');
-  elements.announcementClose.style.display = preview ? 'block' : 'none';
+  elements.announcementClose.style.display = 'block';
 }
 
 function hideAnnouncement(force = false) {
   if (state.previewActive && !force) return;
   state.activeAnnouncement = null;
   state.previewActive = false;
+  elements.announcement.classList.remove('visible', 'blinking');
+  elements.announcement.setAttribute('aria-hidden', 'true');
+  elements.announcementClose.style.display = 'none';
+}
+
+function dismissAnnouncement() {
+  if (state.previewActive) {
+    hideAnnouncement(true);
+    evaluateSchedule();
+    return;
+  }
+  if (state.activeAnnouncement) state.dismissedAnnouncement = state.activeAnnouncement;
   elements.announcement.classList.remove('visible', 'blinking');
   elements.announcement.setAttribute('aria-hidden', 'true');
   elements.announcementClose.style.display = 'none';
@@ -109,6 +124,8 @@ function runBrowserAction(action) {
 }
 
 function setSleepMode(enabled) {
+  if (state.sleepMode === enabled) return;
+  state.sleepMode = enabled;
   elements.sleepScreen.classList.toggle('visible', enabled);
   elements.sleepScreen.setAttribute('aria-hidden', enabled ? 'false' : 'true');
   document.body.classList.toggle('sleeping', enabled);
@@ -126,40 +143,57 @@ function evaluateSchedule() {
   const sleep = timeToMinutes(schedule.sleepStart);
   const sleeping = minutes >= sleep || minutes < wake;
   setSleepMode(sleeping);
-  if (sleeping) { hideAnnouncement(); return; }
+  if (sleeping) {
+    state.dismissedAnnouncement = null;
+    hideAnnouncement();
+    return;
+  }
 
+  let currentType = null;
   const morningStart = timeToMinutes(schedule.morningStart);
   if (minutes >= morningStart && minutes < morningStart + Number(schedule.morningDurationMinutes || 5)) {
-    showAnnouncement('morning', 'Guten Morgen!', 'Auf zum Kaffee holen ☕', '☀️'); return;
+    currentType = 'morning';
+    showAnnouncement(currentType, 'Guten Morgen!', 'Auf zum Kaffee holen ☕', '☀️');
+  } else if (minutes >= timeToMinutes(schedule.almostLunch) && minutes < timeToMinutes(schedule.lunchStart)) {
+    currentType = 'almost-lunch';
+    showAnnouncement(currentType, 'Gleich ist Mittag!', 'Noch wenige Minuten durchhalten', '⏰', true);
+  } else if (minutes >= timeToMinutes(schedule.lunchStart) && minutes <= timeToMinutes(schedule.lunchEndDisplayUntil)) {
+    currentType = 'lunch';
+    showAnnouncement(currentType, 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️');
+  } else if (minutes === timeToMinutes(schedule.breakFinished) && seconds < Number(schedule.breakFinishedDurationSeconds || 60)) {
+    currentType = 'finished';
+    showAnnouncement(currentType, 'Mittagspause zu Ende', 'Weiter geht’s!', '💼', true);
+  } else {
+    const almostHome = timeToMinutes(schedule.almostHomeStart);
+    if (minutes >= almostHome && minutes < almostHome + Number(schedule.almostHomeDurationMinutes || 5)) {
+      currentType = 'almost-home';
+      showAnnouncement(currentType, 'Jetzt geht’s bald heim!', 'Endspurt – ihr habt es fast geschafft', '🏁');
+    } else if (minutes >= timeToMinutes(schedule.goodbyeStart) && minutes < sleep) {
+      currentType = 'goodbye';
+      showAnnouncement(currentType, 'Schönen Feierabend!', 'Bis morgen 👋', '🌙');
+    }
   }
-  if (minutes >= timeToMinutes(schedule.almostLunch) && minutes < timeToMinutes(schedule.lunchStart)) {
-    showAnnouncement('almost-lunch', 'Gleich ist Mittag!', 'Noch wenige Minuten durchhalten', '⏰', true); return;
+
+  if (!currentType) {
+    state.dismissedAnnouncement = null;
+    hideAnnouncement();
+  } else if (state.dismissedAnnouncement && state.dismissedAnnouncement !== currentType) {
+    state.dismissedAnnouncement = null;
   }
-  if (minutes >= timeToMinutes(schedule.lunchStart) && minutes <= timeToMinutes(schedule.lunchEndDisplayUntil)) {
-    showAnnouncement('lunch', 'Mahlzeit!', 'Lasst es euch schmecken', '🍽️'); return;
-  }
-  if (minutes === timeToMinutes(schedule.breakFinished) && seconds < Number(schedule.breakFinishedDurationSeconds || 60)) {
-    showAnnouncement('finished', 'Mittagspause zu Ende', 'Weiter geht’s!', '💼', true); return;
-  }
-  const almostHome = timeToMinutes(schedule.almostHomeStart);
-  if (minutes >= almostHome && minutes < almostHome + Number(schedule.almostHomeDurationMinutes || 5)) {
-    showAnnouncement('almost-home', 'Jetzt geht’s bald heim!', 'Endspurt – ihr habt es fast geschafft', '🏁'); return;
-  }
-  if (minutes >= timeToMinutes(schedule.goodbyeStart) && minutes < sleep) {
-    showAnnouncement('goodbye', 'Schönen Feierabend!', 'Bis morgen 👋', '🌙'); return;
-  }
-  hideAnnouncement();
 }
 
 function setupLunchPreview() {
   document.getElementById('lunch-preview').addEventListener('click', () => showAnnouncement('preview', 'Mahlzeit!', 'Testansicht · Lasst es euch schmecken', '🍽️', false, true));
-  elements.announcementClose.addEventListener('click', () => { hideAnnouncement(true); evaluateSchedule(); });
+  elements.announcementClose.addEventListener('click', (event) => {
+    event.stopPropagation();
+    dismissAnnouncement();
+  });
+  elements.announcement.addEventListener('click', dismissAnnouncement);
 }
 
 function setupBrowser() {
   const browser = elements.browser;
   const homeUrl = state.config.monitoringUrl;
-
   browser.addEventListener('dom-ready', () => {
     state.browserReady = true;
     runBrowserAction((readyBrowser) => readyBrowser.setAudioMuted(state.pendingBrowserMute));
@@ -176,20 +210,10 @@ function setupBrowser() {
     event.preventDefault();
     runBrowserAction((readyBrowser) => readyBrowser.loadURL(event.url));
   });
-
-  document.getElementById('browser-back').addEventListener('click', () => {
-    runBrowserAction((readyBrowser) => { if (readyBrowser.canGoBack()) readyBrowser.goBack(); });
-  });
-  document.getElementById('browser-forward').addEventListener('click', () => {
-    runBrowserAction((readyBrowser) => { if (readyBrowser.canGoForward()) readyBrowser.goForward(); });
-  });
-  document.getElementById('browser-home').addEventListener('click', () => {
-    runBrowserAction((readyBrowser) => readyBrowser.loadURL(homeUrl));
-  });
-  document.getElementById('browser-reload').addEventListener('click', () => {
-    runBrowserAction((readyBrowser) => readyBrowser.reload());
-  });
-
+  document.getElementById('browser-back').addEventListener('click', () => runBrowserAction((readyBrowser) => { if (readyBrowser.canGoBack()) readyBrowser.goBack(); }));
+  document.getElementById('browser-forward').addEventListener('click', () => runBrowserAction((readyBrowser) => { if (readyBrowser.canGoForward()) readyBrowser.goForward(); }));
+  document.getElementById('browser-home').addEventListener('click', () => runBrowserAction((readyBrowser) => readyBrowser.loadURL(homeUrl)));
+  document.getElementById('browser-reload').addEventListener('click', () => runBrowserAction((readyBrowser) => readyBrowser.reload()));
   browser.src = homeUrl;
 }
 
@@ -227,10 +251,8 @@ function loadMemeHistory() {
   try {
     const raw = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistoryV2') || '{}');
     state.memeHistory = {
-      urls: uniqueStrings(raw.urls),
-      postIds: uniqueStrings(raw.postIds),
-      sha256: uniqueStrings(raw.sha256),
-      dHashes: uniqueStrings(raw.dHashes)
+      urls: uniqueStrings(raw.urls), postIds: uniqueStrings(raw.postIds),
+      sha256: uniqueStrings(raw.sha256), dHashes: uniqueStrings(raw.dHashes)
     };
     const oldUrls = JSON.parse(localStorage.getItem('mahlzeitDashMemeHistory') || '[]');
     state.memeHistory.urls = uniqueStrings([...state.memeHistory.urls, ...(Array.isArray(oldUrls) ? oldUrls : [])]);
@@ -303,11 +325,7 @@ async function loadMeme() {
       const meme = await response.json();
       if (!isSafeMemeMetadata(meme)) continue;
       let fingerprint;
-      try {
-        fingerprint = await window.dashboardAPI.fingerprintImage(meme.url);
-      } catch (_error) {
-        continue;
-      }
+      try { fingerprint = await window.dashboardAPI.fingerprintImage(meme.url); } catch (_error) { continue; }
       if (isKnownFingerprint(fingerprint)) continue;
       rememberMeme(meme, fingerprint);
       const title = escapeHtml(meme.title || 'Deutsches Meme');
@@ -345,11 +363,8 @@ async function init() {
   setInterval(loadMeme, Math.max(10, Number(state.config.meme.refreshMinutes || 30)) * 60000);
   document.getElementById('meme-refresh').addEventListener('click', loadMeme);
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'F5') {
-      event.preventDefault();
-      runBrowserAction((browser) => browser.reload());
-    }
-    if (event.key === 'Escape' && state.previewActive) hideAnnouncement(true);
+    if (event.key === 'F5') { event.preventDefault(); runBrowserAction((browser) => browser.reload()); }
+    if (event.key === 'Escape' && elements.announcement.classList.contains('visible')) dismissAnnouncement();
     if (event.key === 'F11') event.preventDefault();
   });
 }

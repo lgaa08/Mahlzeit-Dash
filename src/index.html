@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://api.open-meteo.com https://worldtimeapi.org https://meme-api.com; frame-src https: http:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://api.open-meteo.com https://meme-api.com; frame-src https: http:;">
   <title>Mahlzeit Dashboard</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -34,7 +34,7 @@
       <div class="clock-area">
         <div id="date" class="date"></div>
         <div id="clock" class="clock">--:--:--</div>
-        <div id="clock-sync" class="clock-sync">NETZZEIT WIRD SYNCHRONISIERT</div>
+        <div id="clock-sync" class="clock-sync">ZEIT WIRD SYNCHRONISIERT</div>
       </div>
     </header>
 
@@ -83,6 +83,12 @@
       <div id="announcement-text" class="announcement-text"></div>
       <div id="announcement-subtext" class="announcement-subtext"></div>
     </div>
+  </section>
+
+  <section id="sleep-screen" class="sleep-screen" aria-hidden="true">
+    <div class="sleep-mark"></div>
+    <div class="sleep-copy">Ruhemodus</div>
+    <div class="sleep-subcopy">Dashboard startet automatisch wieder um 07:30 Uhr</div>
   </section>
 
   <script src="app.js"></script>

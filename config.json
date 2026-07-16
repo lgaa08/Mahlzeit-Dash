@@ -1,0 +1,24 @@
+{
+  "appTitle": "Office Info Dashboard",
+  "monitoringUrl": "https://example.org",
+  "weather": {
+    "locationName": "Kempten (Allgäu)",
+    "latitude": 47.7267,
+    "longitude": 10.3139,
+    "timezone": "Europe/Berlin"
+  },
+  "meme": {
+    "enabled": true,
+    "refreshMinutes": 360
+  },
+  "schedule": {
+    "timezone": "Europe/Berlin",
+    "almostLunch": "11:50",
+    "lunchStart": "11:55",
+    "lunchEndDisplayUntil": "12:50",
+    "breakFinished": "13:00",
+    "breakFinishedDurationSeconds": 60
+  },
+  "kiosk": true,
+  "allowDevTools": false
+}

@@ -14,15 +14,15 @@
   "meme": {
     "enabled": true,
     "refreshMinutes": 30,
-    "sources": ["deutschememes"],
-    "perceptualHashDistance": 5,
+    "source": "deutschememes",
+    "batchSize": 50,
+    "poolRefreshMinutes": 60,
     "blockedKeywords": [
       "nsfw", "nude", "nudity", "nackt", "nacktheit", "porn", "porno", "sex", "sexy",
       "erotik", "erotic", "onlyfans", "boobs", "tits", "brüste", "brust", "ass", "arsch",
       "dick", "penis", "vagina", "fetish", "fetisch", "gore", "blood", "blut", "leiche",
       "corpse", "suicide", "selbstmord", "tötung", "mord", "enthaupt", "gewalt"
-    ],
-    "maxAttempts": 25
+    ]
   },
   "schedule": {
     "timezone": "Europe/Berlin",

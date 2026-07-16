@@ -1,0 +1,28 @@
+{
+  "name": "mahlzeit-dashboard",
+  "version": "1.0.0",
+  "description": "Kiosk-Informationsdashboard mit Monitoring-Browser, Wetter, Meme des Tages und zeitgesteuerten Mittagspausen-Hinweisen.",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "check": "node --check main.js && node --check preload.js && node --check src/app.js",
+    "install:linux": "bash scripts/install-linux.sh"
+  },
+  "keywords": [
+    "dashboard",
+    "kiosk",
+    "monitoring",
+    "electron",
+    "linux"
+  ],
+  "author": "lgaa08",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^37.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

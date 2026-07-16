@@ -1,7 +1,8 @@
 const state = {
   config: null,
   memeTimer: null,
-  activeAnnouncement: null
+  activeAnnouncement: null,
+  lastMemeUrl: null
 };
 
 const elements = {
@@ -56,13 +57,11 @@ function getBerlinDateParts(date = new Date()) {
     hour12: false
   });
 
-  const parts = Object.fromEntries(
+  return Object.fromEntries(
     formatter.formatToParts(date)
       .filter((part) => part.type !== 'literal')
       .map((part) => [part.type, part.value])
   );
-
-  return parts;
 }
 
 function timeToMinutes(value) {
@@ -193,24 +192,69 @@ async function loadWeather() {
   }
 }
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 function renderMemeFallback() {
   const fallbacks = [
-    ['IT-Regel Nr. 1', 'Hast du es schon aus- und wieder eingeschaltet?'],
-    ['Produktivität', 'Der Kaffee arbeitet. Ich überwache nur den Fortschritt.'],
+    ['Admin-Weisheit', 'Ein Neustart ist keine Lösung. Aber erstaunlich oft die Lösung.'],
     ['Monitoring', 'Alles grün. Das macht uns erst recht misstrauisch.'],
-    ['Freitag', 'Das Update wird selbstverständlich erst Montag installiert.']
+    ['Kaffee-Service', 'System läuft stabil. Administrator noch nicht.'],
+    ['Freitag 16:59', 'Wer jetzt noch ein Update startet, übernimmt auch den Bereitschaftsdienst.'],
+    ['Ticket-Status', 'Problem konnte nicht reproduziert werden. Benutzer leider schon.'],
+    ['Netzwerk', 'Es ist immer DNS. Außer wenn es DHCP ist.'],
+    ['Büroalltag', 'Dieses Meeting hätte eine E-Mail sein können.'],
+    ['Montag', 'Authentifizierung fehlgeschlagen: Motivation nicht gefunden.']
   ];
-  const item = fallbacks[new Date().getDate() % fallbacks.length];
+  const halfHourSlot = Math.floor(Date.now() / (30 * 60 * 1000));
+  const item = fallbacks[halfHourSlot % fallbacks.length];
   elements.memeContent.className = 'meme-content';
   elements.memeContent.innerHTML = `
     <div class="loading-card" style="height:100%;padding:28px;text-align:center">
       <div>
         <div style="font-size:52px">😄</div>
-        <h2 style="font-size:30px;margin:14px 0 8px">${item[0]}</h2>
-        <p style="color:#aab2c0;font-size:20px;margin:0">${item[1]}</p>
+        <h2 style="font-size:30px;margin:14px 0 8px">${escapeHtml(item[0])}</h2>
+        <p style="color:#aab2c0;font-size:20px;margin:0">${escapeHtml(item[1])}</p>
       </div>
     </div>
   `;
+}
+
+function isSafeMeme(meme) {
+  if (!meme || !meme.url || meme.nsfw || meme.spoiler) return false;
+  if (meme.url === state.lastMemeUrl) return false;
+
+  const imageUrl = String(meme.url).toLowerCase();
+  const allowedImage = ['.jpg', '.jpeg', '.png', '.webp'].some((extension) => imageUrl.includes(extension));
+  if (!allowedImage) return false;
+
+  const blockedKeywords = state.config.meme.blockedKeywords || [];
+  const searchableText = `${meme.title || ''} ${meme.postLink || ''} ${meme.subreddit || ''}`.toLowerCase();
+  return !blockedKeywords.some((keyword) => searchableText.includes(String(keyword).toLowerCase()));
+}
+
+async function fetchSafeMeme() {
+  const sources = state.config.meme.sources?.length
+    ? state.config.meme.sources
+    : ['memes', 'wholesomememes', 'AdviceAnimals', 'sysadminhumor'];
+  const maxAttempts = Math.max(1, Number(state.config.meme.maxAttempts || 6));
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const source = sources[Math.floor(Math.random() * sources.length)];
+    const response = await fetch(`https://meme-api.com/gimme/${encodeURIComponent(source)}`, { cache: 'no-store' });
+    if (!response.ok) continue;
+
+    const meme = await response.json();
+    if (isSafeMeme(meme)) return meme;
+  }
+
+  throw new Error('Kein firmentaugliches Meme gefunden');
 }
 
 async function loadMeme() {
@@ -220,18 +264,18 @@ async function loadMeme() {
   }
 
   elements.memeContent.className = 'meme-content loading-card';
-  elements.memeContent.textContent = 'Meme wird geladen …';
+  elements.memeContent.textContent = 'Firmentaugliches Meme wird gesucht …';
 
   try {
-    const response = await fetch('https://meme-api.com/gimme/ProgrammerHumor', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const meme = await response.json();
-    if (!meme.url || meme.nsfw) throw new Error('Kein geeignetes Meme erhalten');
+    const meme = await fetchSafeMeme();
+    state.lastMemeUrl = meme.url;
+    const title = escapeHtml(meme.title || 'Meme');
+    const source = escapeHtml(meme.subreddit ? `r/${meme.subreddit}` : 'Meme');
 
     elements.memeContent.className = 'meme-content';
     elements.memeContent.innerHTML = `
-      <img src="${meme.url}" alt="${meme.title || 'Meme des Tages'}" referrerpolicy="no-referrer">
-      <div class="meme-caption">${meme.title || 'Meme des Tages'}</div>
+      <img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer">
+      <div class="meme-caption">${title} · ${source}</div>
     `;
   } catch (_error) {
     renderMemeFallback();
@@ -255,7 +299,8 @@ async function init() {
   }, 1000);
 
   setInterval(loadWeather, 10 * 60 * 1000);
-  state.memeTimer = setInterval(loadMeme, Math.max(10, state.config.meme.refreshMinutes) * 60 * 1000);
+  const refreshMinutes = Math.max(10, Number(state.config.meme.refreshMinutes || 30));
+  state.memeTimer = setInterval(loadMeme, refreshMinutes * 60 * 1000);
 
   document.getElementById('meme-refresh').addEventListener('click', loadMeme);
   document.addEventListener('keydown', (event) => {
@@ -266,5 +311,5 @@ async function init() {
 
 init().catch((error) => {
   console.error(error);
-  document.body.innerHTML = `<div class="error-card">Dashboard konnte nicht gestartet werden: ${error.message}</div>`;
+  document.body.innerHTML = `<div class="error-card">Dashboard konnte nicht gestartet werden: ${escapeHtml(error.message)}</div>`;
 });

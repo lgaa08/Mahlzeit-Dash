@@ -15,10 +15,10 @@ const DEFAULT_CONFIG = {
   time: { timezone: 'Europe/Berlin', resyncMinutes: 15 },
   meme: {
     enabled: true,
-    refreshMinutes: 30,
-    source: 'deutschememes',
-    batchSize: 50,
-    poolRefreshMinutes: 60,
+    refreshSeconds: 10,
+    sources: ['deutschememes'],
+    batchSize: 100,
+    poolRefreshMinutes: 1440,
     blockedKeywords: []
   },
   schedule: {
@@ -55,7 +55,7 @@ function readConfig() {
 
 function readHttpsDate(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.1', 'Cache-Control': 'no-cache' } }, (response) => {
+    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.2', 'Cache-Control': 'no-cache' } }, (response) => {
       const dateHeader = response.headers.date;
       response.resume();
       if (!dateHeader) return reject(new Error('Kein Date-Header'));
@@ -82,23 +82,108 @@ async function getNetworkTime() {
   return { ok: true, timestamp: median.timestamp, source: median.source, samples: valid.length };
 }
 
-async function getMemePool(_event, forceRefresh = false) {
-  const batchSize = Math.min(50, Math.max(10, Number(config.meme.batchSize || 50)));
-  const maxAge = Math.max(5, Number(config.meme.poolRefreshMinutes || 60)) * 60 * 1000;
-  if (!forceRefresh && memePoolCache.memes.length && Date.now() - memePoolCache.loadedAt < maxAge) {
-    return { ok: true, cached: true, memes: memePoolCache.memes };
-  }
+function normalizeRedditPost(post) {
+  const data = post?.data || {};
+  const rawUrl = data.url_overridden_by_dest || data.url || '';
+  const previewUrl = data.preview?.images?.[0]?.source?.url?.replaceAll('&amp;', '&') || '';
+  const url = rawUrl || previewUrl;
+  return {
+    postId: data.id || '',
+    postLink: data.permalink ? `https://www.reddit.com${data.permalink}` : '',
+    subreddit: data.subreddit || '',
+    title: data.title || 'Deutsches Meme',
+    url,
+    nsfw: Boolean(data.over_18),
+    spoiler: Boolean(data.spoiler),
+    createdUtc: Number(data.created_utc || 0)
+  };
+}
 
-  const source = encodeURIComponent(config.meme.source || 'deutschememes');
-  const response = await net.fetch(`https://meme-api.com/gimme/${source}/${batchSize}`, {
+async function fetchRedditPool(source, limit) {
+  const sorts = ['hot', 'new', 'top'];
+  const requests = sorts.map(async (sort) => {
+    const suffix = sort === 'top' ? '?t=month&raw_json=1&limit=100' : '?raw_json=1&limit=100';
+    const response = await net.fetch(`https://www.reddit.com/r/${encodeURIComponent(source)}/${sort}.json${suffix}`, {
+      cache: 'no-store',
+      headers: {
+        'User-Agent': 'Mahlzeit-Dash/1.2 (office display)',
+        Accept: 'application/json'
+      }
+    });
+    if (!response.ok) throw new Error(`Reddit ${sort}: HTTP ${response.status}`);
+    const payload = await response.json();
+    return (payload?.data?.children || []).map(normalizeRedditPost);
+  });
+
+  const results = await Promise.allSettled(requests);
+  const merged = results
+    .filter((result) => result.status === 'fulfilled')
+    .flatMap((result) => result.value);
+
+  const unique = [];
+  const seen = new Set();
+  for (const meme of merged) {
+    const key = meme.postId || meme.url;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(meme);
+  }
+  return unique.slice(0, limit);
+}
+
+async function fetchMemeApiPool(source, limit) {
+  const response = await net.fetch(`https://meme-api.com/gimme/${encodeURIComponent(source)}/${Math.min(50, limit)}`, {
     cache: 'no-store',
-    headers: { 'User-Agent': 'Mahlzeit-Dash/1.1' }
+    headers: { 'User-Agent': 'Mahlzeit-Dash/1.2' }
   });
   if (!response.ok) throw new Error(`Meme-API HTTP ${response.status}`);
   const payload = await response.json();
-  const memes = Array.isArray(payload.memes) ? payload.memes : (payload.url ? [payload] : []);
-  memePoolCache = { loadedAt: Date.now(), memes };
-  return { ok: true, cached: false, memes };
+  return Array.isArray(payload.memes) ? payload.memes : (payload.url ? [payload] : []);
+}
+
+async function getMemePool(_event, forceRefresh = false) {
+  const batchSize = Math.min(250, Math.max(20, Number(config.meme.batchSize || 100)));
+  const maxAge = Math.max(5, Number(config.meme.poolRefreshMinutes || 1440)) * 60 * 1000;
+  if (!forceRefresh && memePoolCache.memes.length && Date.now() - memePoolCache.loadedAt < maxAge) {
+    return { ok: true, cached: true, source: 'memory', memes: memePoolCache.memes };
+  }
+
+  const sources = Array.isArray(config.meme.sources) && config.meme.sources.length
+    ? config.meme.sources
+    : [config.meme.source || 'deutschememes'];
+
+  const collected = [];
+  const errors = [];
+  for (const source of sources) {
+    try {
+      collected.push(...await fetchRedditPool(source, batchSize));
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+
+  if (!collected.length) {
+    for (const source of sources) {
+      try {
+        collected.push(...await fetchMemeApiPool(source, batchSize));
+      } catch (error) {
+        errors.push(error.message);
+      }
+    }
+  }
+
+  const unique = [];
+  const seen = new Set();
+  for (const meme of collected) {
+    const key = meme.postId || meme.postLink || meme.url;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(meme);
+  }
+
+  if (!unique.length) throw new Error(`Keine Meme-Quelle erreichbar: ${errors.join(' | ')}`);
+  memePoolCache = { loadedAt: Date.now(), memes: unique };
+  return { ok: true, cached: false, source: 'reddit-json', memes: unique };
 }
 
 function createWindow() {

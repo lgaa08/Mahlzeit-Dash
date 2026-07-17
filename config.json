@@ -13,7 +13,7 @@
   },
   "meme": {
     "enabled": true,
-    "refreshSeconds": 10,
+    "refreshSeconds": 300,
     "sources": ["deutschememes"],
     "batchSize": 250,
     "poolRefreshMinutes": 1440,

@@ -57,7 +57,7 @@ function readConfig() {
 
 function readHttpsDate(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.2', 'Cache-Control': 'no-cache' } }, (response) => {
+    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.3', 'Cache-Control': 'no-cache' } }, (response) => {
       const dateHeader = response.headers.date;
       response.resume();
       if (!dateHeader) return reject(new Error('Kein Date-Header'));
@@ -84,6 +84,20 @@ async function getNetworkTime() {
   return { ok: true, timestamp: median.timestamp, source: median.source, samples: valid.length };
 }
 
+async function fetchJson(url, options = {}, timeoutMs = 9000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await net.fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('json')) throw new Error(`Unerwarteter Inhalt: ${contentType || 'unbekannt'}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function normalizeRedditPost(post) {
   const data = post?.data || {};
   const rawUrl = data.url_overridden_by_dest || data.url || '';
@@ -105,23 +119,22 @@ async function fetchRedditPool(source, limit) {
   const sorts = ['hot', 'new', 'top'];
   const requests = sorts.map(async (sort) => {
     const suffix = sort === 'top' ? '?t=month&raw_json=1&limit=100' : '?raw_json=1&limit=100';
-    const response = await net.fetch(`https://www.reddit.com/r/${encodeURIComponent(source)}/${sort}.json${suffix}`, {
-      cache: 'no-store',
-      headers: {
-        'User-Agent': 'Mahlzeit-Dash/1.2 (office display)',
-        Accept: 'application/json'
-      }
-    });
-    if (!response.ok) throw new Error(`Reddit ${sort}: HTTP ${response.status}`);
-    const payload = await response.json();
+    const payload = await fetchJson(
+      `https://www.reddit.com/r/${encodeURIComponent(source)}/${sort}.json${suffix}`,
+      {
+        cache: 'no-store',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 Mahlzeit-Dash/1.3',
+          Accept: 'application/json'
+        }
+      },
+      8000
+    );
     return (payload?.data?.children || []).map(normalizeRedditPost);
   });
 
   const results = await Promise.allSettled(requests);
-  const merged = results
-    .filter((result) => result.status === 'fulfilled')
-    .flatMap((result) => result.value);
-
+  const merged = results.filter((result) => result.status === 'fulfilled').flatMap((result) => result.value);
   const unique = [];
   const seen = new Set();
   for (const meme of merged) {
@@ -134,13 +147,16 @@ async function fetchRedditPool(source, limit) {
 }
 
 async function fetchMemeApiPool(source, limit) {
-  const response = await net.fetch(`https://meme-api.com/gimme/${encodeURIComponent(source)}/${Math.min(50, limit)}`, {
-    cache: 'no-store',
-    headers: { 'User-Agent': 'Mahlzeit-Dash/1.2' }
-  });
-  if (!response.ok) throw new Error(`Meme-API HTTP ${response.status}`);
-  const payload = await response.json();
-  return Array.isArray(payload.memes) ? payload.memes : (payload.url ? [payload] : []);
+  const count = Math.min(30, Math.max(10, limit));
+  const requests = Array.from({ length: count }, () =>
+    fetchJson(
+      `https://meme-api.com/gimme/${encodeURIComponent(source)}`,
+      { cache: 'no-store', headers: { 'User-Agent': 'Mahlzeit-Dash/1.3', Accept: 'application/json' } },
+      7000
+    )
+  );
+  const results = await Promise.allSettled(requests);
+  return results.filter((result) => result.status === 'fulfilled').map((result) => result.value);
 }
 
 async function getMemePool(_event, forceRefresh = false) {
@@ -156,21 +172,20 @@ async function getMemePool(_event, forceRefresh = false) {
 
   const collected = [];
   const errors = [];
+
   for (const source of sources) {
     try {
       collected.push(...await fetchRedditPool(source, batchSize));
     } catch (error) {
-      errors.push(error.message);
+      errors.push(`Reddit ${source}: ${error.message}`);
     }
   }
 
-  if (!collected.length) {
-    for (const source of sources) {
-      try {
-        collected.push(...await fetchMemeApiPool(source, batchSize));
-      } catch (error) {
-        errors.push(error.message);
-      }
+  for (const source of sources) {
+    try {
+      collected.push(...await fetchMemeApiPool(source, Math.min(batchSize, 30)));
+    } catch (error) {
+      errors.push(`Meme-API ${source}: ${error.message}`);
     }
   }
 
@@ -183,9 +198,12 @@ async function getMemePool(_event, forceRefresh = false) {
     unique.push(meme);
   }
 
-  if (!unique.length) throw new Error(`Keine Meme-Quelle erreichbar: ${errors.join(' | ')}`);
+  if (!unique.length) {
+    throw new Error(`Keine Meme-Quelle erreichbar: ${errors.join(' | ') || 'keine Daten'}`);
+  }
+
   memePoolCache = { loadedAt: Date.now(), memes: unique };
-  return { ok: true, cached: false, source: 'reddit-json', memes: unique };
+  return { ok: true, cached: false, source: 'combined', memes: unique };
 }
 
 function createWindow() {

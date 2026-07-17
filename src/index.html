@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://api.open-meteo.com; frame-src https: http:; media-src 'self' data: blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://api.open-meteo.com; frame-src https: http:; media-src 'self' data: blob: file:;">
   <title>Mahlzeit Dashboard</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="animations.css">
+  <link rel="stylesheet" href="easteregg.css">
   <link rel="stylesheet" href="sleep.css">
 </head>
 <body>
@@ -19,6 +20,7 @@
       <div class="header-left">
         <div class="system-state"><span class="live-pulse"></span><strong>SYSTEM ONLINE</strong></div>
         <button id="lunch-preview" class="glow-button" type="button">🍽️ Mahlzeit testen</button>
+        <button id="alarm-preview" class="glow-button" type="button">🚨 Alarm testen</button>
       </div>
 
       <section class="weather-strip" aria-label="Aktuelles Wetter">
@@ -35,7 +37,7 @@
 
       <div class="clock-area">
         <div id="date" class="date"></div>
-        <div id="clock" class="clock">--:--:--</div>
+        <div id="clock" class="clock" title="Zeit ist relativ">--:--:--</div>
         <div id="clock-sync" class="clock-sync">ZEIT WIRD SYNCHRONISIERT</div>
       </div>
     </header>
@@ -93,8 +95,10 @@
     <div class="sleep-subcopy">Dashboard startet automatisch wieder um 07:30 Uhr</div>
   </section>
 
+  <script src="meme-preload.js"></script>
   <script src="sounds.js"></script>
   <script src="app.js"></script>
   <script src="runtime-fixes.js"></script>
+  <script src="easteregg.js"></script>
 </body>
 </html>

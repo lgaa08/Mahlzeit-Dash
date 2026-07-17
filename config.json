@@ -13,10 +13,10 @@
   },
   "meme": {
     "enabled": true,
-    "refreshMinutes": 30,
-    "source": "deutschememes",
-    "batchSize": 50,
-    "poolRefreshMinutes": 60,
+    "refreshSeconds": 10,
+    "sources": ["deutschememes"],
+    "batchSize": 250,
+    "poolRefreshMinutes": 1440,
     "blockedKeywords": [
       "nsfw", "nude", "nudity", "nackt", "nacktheit", "porn", "porno", "sex", "sexy",
       "erotik", "erotic", "onlyfans", "boobs", "tits", "brüste", "brust", "ass", "arsch",

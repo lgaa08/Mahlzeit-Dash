@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const https = require('node:https');
 const path = require('node:path');
 
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 const DEFAULT_CONFIG = {
   monitoringUrl: 'https://example.org',
   weather: {
@@ -15,7 +17,7 @@ const DEFAULT_CONFIG = {
   time: { timezone: 'Europe/Berlin', resyncMinutes: 15 },
   meme: {
     enabled: true,
-    refreshSeconds: 10,
+    refreshSeconds: 300,
     sources: ['deutschememes'],
     batchSize: 100,
     poolRefreshMinutes: 1440,

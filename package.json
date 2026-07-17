@@ -8,14 +8,16 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "check": "node --check main.js && node --check preload.js && node --check src/app.js",
-    "install:linux": "bash scripts/install-linux.sh"
+    "install:linux": "bash scripts/install-linux.sh",
+    "install:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows.ps1"
   },
   "keywords": [
     "dashboard",
     "kiosk",
     "monitoring",
     "electron",
-    "linux"
+    "linux",
+    "windows"
   ],
   "author": "lgaa08",
   "license": "MIT",

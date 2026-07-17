@@ -7,6 +7,8 @@ const state = {
   networkTimeFetchedAt: null,
   memeHistory: { urls: [], postIds: [] },
   memePool: [],
+  memePoolDate: null,
+  memeLoading: false,
   hasVisibleMeme: false,
   browserReady: false,
   pendingBrowserMute: false,
@@ -65,13 +67,22 @@ function getBerlinDateParts(date = currentDate()) {
   }).formatToParts(date).filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
 }
 
+function getPoolDateKey() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: state.config?.time?.timezone || 'Europe/Berlin',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(currentDate());
+  const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 async function syncNetworkTime() {
   const result = await window.dashboardAPI.getNetworkTime();
   state.networkTimeBase = Number(result.timestamp);
   state.networkTimeFetchedAt = Date.now();
   elements.clockSync.textContent = result.ok
     ? `NETZZEIT · ${String(result.source).toUpperCase()}`
-    : 'SYSTEMZEIT · NTP DES LINUXCLIENTS';
+    : 'SYSTEMZEIT · NTP DES CLIENTS';
   elements.clockSync.classList.toggle('synced', Boolean(result.ok));
 }
 
@@ -276,14 +287,15 @@ function saveMemeHistory() {
 }
 
 function extractPostId(meme) {
-  const explicit = String(meme?.postLink || meme?.postId || '');
+  const explicit = String(meme?.postId || meme?.postLink || '');
   const match = explicit.match(/comments\/([a-z0-9]+)/i);
   return match?.[1] || explicit || '';
 }
 
 function isSafeNewMeme(meme) {
   if (!meme?.url || meme.nsfw || meme.spoiler) return false;
-  if (String(meme.subreddit || '').toLowerCase() !== 'deutschememes') return false;
+  const allowedSources = (state.config.meme.sources || ['deutschememes']).map((source) => String(source).toLowerCase());
+  if (!allowedSources.includes(String(meme.subreddit || '').toLowerCase())) return false;
   if (state.memeHistory.urls.includes(meme.url)) return false;
   const postId = extractPostId(meme);
   if (postId && state.memeHistory.postIds.includes(postId)) return false;
@@ -306,6 +318,7 @@ async function refillMemePool(forceRefresh = false) {
   const result = await window.dashboardAPI.getMemePool(forceRefresh);
   const candidates = Array.isArray(result?.memes) ? result.memes.filter(isSafeNewMeme) : [];
   state.memePool = shuffle(candidates);
+  state.memePoolDate = getPoolDateKey();
   return state.memePool.length;
 }
 
@@ -315,34 +328,52 @@ function displayMeme(meme) {
   state.memeHistory.postIds = uniqueStrings([...state.memeHistory.postIds, postId]);
   saveMemeHistory();
   const title = escapeHtml(meme.title || 'Deutsches Meme');
-  elements.memeContent.className = 'meme-content';
-  elements.memeContent.innerHTML = `<img src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer"><div class="meme-caption">${title}</div>`;
+  elements.memeContent.className = 'meme-content meme-switching';
+  elements.memeContent.innerHTML = `<img class="meme-image-enter" src="${escapeHtml(meme.url)}" alt="${title}" referrerpolicy="no-referrer"><div class="meme-caption meme-caption-enter">${title}</div>`;
   state.hasVisibleMeme = true;
 }
 
 async function loadMeme(forceRefresh = false) {
+  if (state.memeLoading || state.sleepMode) return;
+  state.memeLoading = true;
   const previousHtml = elements.memeContent.innerHTML;
-  if (!state.hasVisibleMeme) {
-    elements.memeContent.className = 'meme-content loading-card';
-    elements.memeContent.textContent = 'Deutsche Memes werden geladen …';
-  }
-
   try {
+    if (!state.hasVisibleMeme) {
+      elements.memeContent.className = 'meme-content loading-card';
+      elements.memeContent.textContent = 'Deutsche Memes werden geladen …';
+    }
+
+    const today = getPoolDateKey();
+    if (state.memePoolDate && state.memePoolDate !== today) {
+      state.memePool = [];
+      forceRefresh = true;
+    }
+
     state.memePool = state.memePool.filter(isSafeNewMeme);
     if (!state.memePool.length) await refillMemePool(forceRefresh);
     if (!state.memePool.length && !forceRefresh) await refillMemePool(true);
     const meme = state.memePool.shift();
-    if (!meme) throw new Error('Kein neues Meme im Pool');
+    if (!meme) throw new Error('Kein unbekanntes Meme im aktuellen Pool');
     displayMeme(meme);
   } catch (error) {
     console.warn(`Meme konnte nicht geladen werden: ${error.message}`);
     if (state.hasVisibleMeme) {
       elements.memeContent.className = 'meme-content';
       elements.memeContent.innerHTML = previousHtml;
-      return;
+    } else {
+      elements.memeContent.className = 'meme-content fallback-meme';
+      elements.memeContent.innerHTML = '<div><div class="fallback-emoji">🔄</div><h2>Meme-Pool wird neu aufgebaut</h2><p>Reddit oder die Fallback-API ist gerade nicht erreichbar. Neuer Versuch folgt automatisch.</p></div>';
     }
-    elements.memeContent.className = 'meme-content fallback-meme';
-    elements.memeContent.innerHTML = '<div><div class="fallback-emoji">🛡️</div><h2>Kein neues Meme verfügbar</h2><p>Die API ist gerade nicht erreichbar oder alle Beiträge sind bereits bekannt.</p></div>';
+  } finally {
+    state.memeLoading = false;
+  }
+}
+
+async function checkDailyMemePool() {
+  const today = getPoolDateKey();
+  if (state.memePoolDate && state.memePoolDate !== today) {
+    state.memePool = [];
+    await loadMeme(true);
   }
 }
 
@@ -355,12 +386,13 @@ async function init() {
   evaluateSchedule();
   setupAnnouncementControls();
   loadWeather();
-  loadMeme();
+  loadMeme(true);
 
   setInterval(() => { updateClock(); evaluateSchedule(); }, 1000);
   setInterval(syncNetworkTime, Math.max(5, Number(state.config.time.resyncMinutes || 15)) * 60000);
   setInterval(loadWeather, Math.max(5, Number(state.config.weather.refreshMinutes || 10)) * 60000);
-  setInterval(() => loadMeme(false), Math.max(10, Number(state.config.meme.refreshMinutes || 30)) * 60000);
+  setInterval(() => loadMeme(false), Math.max(5, Number(state.config.meme.refreshSeconds || 10)) * 1000);
+  setInterval(checkDailyMemePool, 60000);
   document.getElementById('meme-refresh').addEventListener('click', () => loadMeme(false));
   document.addEventListener('keydown', (event) => {
     if (event.key === 'F5') { event.preventDefault(); runBrowserAction((browser) => browser.reload()); }

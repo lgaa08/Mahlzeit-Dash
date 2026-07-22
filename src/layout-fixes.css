@@ -1,0 +1,38 @@
+.monitoring-icon {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: 0 0 36px;
+  padding: 0;
+  line-height: 1;
+}
+
+.monitoring-icon span {
+  position: static;
+  display: block;
+  flex: 0 0 4px;
+  margin: 0;
+  transform: none;
+}
+
+.panel-identity {
+  min-width: 0;
+}
+
+.panel-identity > div:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.panel-kicker,
+.panel-header strong {
+  line-height: 1.15;
+}
+
+#meme-refresh:disabled {
+  cursor: wait;
+  opacity: .72;
+}

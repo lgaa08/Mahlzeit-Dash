@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, shell, net } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, net, powerSaveBlocker } = require('electron');
 const fs = require('node:fs');
 const https = require('node:https');
 const path = require('node:path');
@@ -18,9 +18,9 @@ const DEFAULT_CONFIG = {
   meme: {
     enabled: true,
     refreshSeconds: 300,
-    sources: ['deutschememes'],
-    batchSize: 100,
-    poolRefreshMinutes: 1440,
+    sources: ['deutschememes', 'ich_iel'],
+    batchSize: 120,
+    poolRefreshMinutes: 20,
     blockedKeywords: []
   },
   schedule: {
@@ -35,6 +35,7 @@ const DEFAULT_CONFIG = {
 
 let mainWindow;
 let config;
+let keepAwakeBlockerId = null;
 let memePoolCache = { loadedAt: 0, memes: [] };
 
 function readConfig() {
@@ -55,9 +56,22 @@ function readConfig() {
   }
 }
 
+function startKeepAwake() {
+  if (keepAwakeBlockerId !== null && powerSaveBlocker.isStarted(keepAwakeBlockerId)) return;
+  keepAwakeBlockerId = powerSaveBlocker.start('prevent-display-sleep');
+  console.log(`Display-Standby blockiert: ${powerSaveBlocker.isStarted(keepAwakeBlockerId)}`);
+}
+
+function stopKeepAwake() {
+  if (keepAwakeBlockerId !== null && powerSaveBlocker.isStarted(keepAwakeBlockerId)) {
+    powerSaveBlocker.stop(keepAwakeBlockerId);
+  }
+  keepAwakeBlockerId = null;
+}
+
 function readHttpsDate(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.3', 'Cache-Control': 'no-cache' } }, (response) => {
+    const request = https.get(url, { headers: { 'User-Agent': 'Mahlzeit-Dash/1.4', 'Cache-Control': 'no-cache' } }, (response) => {
       const dateHeader = response.headers.date;
       response.resume();
       if (!dateHeader) return reject(new Error('Kein Date-Header'));
@@ -84,11 +98,21 @@ async function getNetworkTime() {
   return { ok: true, timestamp: median.timestamp, source: median.source, samples: valid.length };
 }
 
-async function fetchJson(url, options = {}, timeoutMs = 9000) {
+async function fetchJson(url, options = {}, timeoutMs = 10000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await net.fetch(url, { ...options, signal: controller.signal });
+    const response = await net.fetch(url, {
+      ...options,
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+        ...(options.headers || {})
+      }
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('json')) throw new Error(`Unerwarteter Inhalt: ${contentType || 'unbekannt'}`);
@@ -115,20 +139,28 @@ function normalizeRedditPost(post) {
   };
 }
 
+function shuffle(items) {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
 async function fetchRedditPool(source, limit) {
-  const sorts = ['hot', 'new', 'top'];
-  const requests = sorts.map(async (sort) => {
-    const suffix = sort === 'top' ? '?t=month&raw_json=1&limit=100' : '?raw_json=1&limit=100';
+  const cacheBuster = Date.now();
+  const sorts = [
+    `new.json?raw_json=1&limit=100&_=${cacheBuster}`,
+    `hot.json?raw_json=1&limit=100&_=${cacheBuster + 1}`,
+    `top.json?t=week&raw_json=1&limit=100&_=${cacheBuster + 2}`,
+    `top.json?t=month&raw_json=1&limit=100&_=${cacheBuster + 3}`
+  ];
+  const requests = sorts.map(async (suffix) => {
     const payload = await fetchJson(
-      `https://www.reddit.com/r/${encodeURIComponent(source)}/${sort}.json${suffix}`,
-      {
-        cache: 'no-store',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 Mahlzeit-Dash/1.3',
-          Accept: 'application/json'
-        }
-      },
-      8000
+      `https://www.reddit.com/r/${encodeURIComponent(source)}/${suffix}`,
+      { headers: { 'User-Agent': 'Mahlzeit-Dash/1.4 (Electron dashboard)' } },
+      10000
     );
     return (payload?.data?.children || []).map(normalizeRedditPost);
   });
@@ -143,16 +175,16 @@ async function fetchRedditPool(source, limit) {
     seen.add(key);
     unique.push(meme);
   }
-  return unique.slice(0, limit);
+  return shuffle(unique).slice(0, limit);
 }
 
 async function fetchMemeApiPool(source, limit) {
-  const count = Math.min(30, Math.max(10, limit));
-  const requests = Array.from({ length: count }, () =>
+  const count = Math.min(50, Math.max(15, limit));
+  const requests = Array.from({ length: count }, (_, index) =>
     fetchJson(
-      `https://meme-api.com/gimme/${encodeURIComponent(source)}`,
-      { cache: 'no-store', headers: { 'User-Agent': 'Mahlzeit-Dash/1.3', Accept: 'application/json' } },
-      7000
+      `https://meme-api.com/gimme/${encodeURIComponent(source)}?t=${Date.now()}-${index}`,
+      { headers: { 'User-Agent': 'Mahlzeit-Dash/1.4' } },
+      9000
     )
   );
   const results = await Promise.allSettled(requests);
@@ -160,38 +192,38 @@ async function fetchMemeApiPool(source, limit) {
 }
 
 async function getMemePool(_event, forceRefresh = false) {
-  const batchSize = Math.min(250, Math.max(20, Number(config.meme.batchSize || 100)));
-  const maxAge = Math.max(5, Number(config.meme.poolRefreshMinutes || 1440)) * 60 * 1000;
+  const batchSize = Math.min(250, Math.max(30, Number(config.meme.batchSize || 120)));
+  const maxAge = Math.max(5, Number(config.meme.poolRefreshMinutes || 20)) * 60 * 1000;
   if (!forceRefresh && memePoolCache.memes.length && Date.now() - memePoolCache.loadedAt < maxAge) {
-    return { ok: true, cached: true, source: 'memory', memes: memePoolCache.memes };
+    return { ok: true, cached: true, source: 'memory', memes: shuffle(memePoolCache.memes) };
   }
 
   const sources = Array.isArray(config.meme.sources) && config.meme.sources.length
     ? config.meme.sources
-    : [config.meme.source || 'deutschememes'];
+    : [config.meme.source || 'deutschememes', 'ich_iel'];
 
   const collected = [];
   const errors = [];
+  const jobs = [];
 
   for (const source of sources) {
-    try {
-      collected.push(...await fetchRedditPool(source, batchSize));
-    } catch (error) {
-      errors.push(`Reddit ${source}: ${error.message}`);
-    }
+    jobs.push(
+      fetchRedditPool(source, batchSize)
+        .then((memes) => collected.push(...memes))
+        .catch((error) => errors.push(`Reddit ${source}: ${error.message}`))
+    );
+    jobs.push(
+      fetchMemeApiPool(source, Math.min(batchSize, 50))
+        .then((memes) => collected.push(...memes))
+        .catch((error) => errors.push(`Meme-API ${source}: ${error.message}`))
+    );
   }
 
-  for (const source of sources) {
-    try {
-      collected.push(...await fetchMemeApiPool(source, Math.min(batchSize, 30)));
-    } catch (error) {
-      errors.push(`Meme-API ${source}: ${error.message}`);
-    }
-  }
+  await Promise.allSettled(jobs);
 
   const unique = [];
   const seen = new Set();
-  for (const meme of collected) {
+  for (const meme of shuffle(collected)) {
     const key = meme.postId || meme.postLink || meme.url;
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -203,7 +235,7 @@ async function getMemePool(_event, forceRefresh = false) {
   }
 
   memePoolCache = { loadedAt: Date.now(), memes: unique };
-  return { ok: true, cached: false, source: 'combined', memes: unique };
+  return { ok: true, cached: false, source: 'combined', memes: shuffle(unique) };
 }
 
 function createWindow() {
@@ -240,6 +272,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  startKeepAwake();
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   ipcMain.handle('dashboard:get-config', () => config);
   ipcMain.handle('dashboard:get-network-time', getNetworkTime);
@@ -249,10 +282,13 @@ app.whenReady().then(() => {
   });
   createWindow();
   app.on('activate', () => {
+    startKeepAwake();
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
+app.on('before-quit', stopKeepAwake);
 app.on('window-all-closed', () => {
+  stopKeepAwake();
   if (process.platform !== 'darwin') app.quit();
 });

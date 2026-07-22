@@ -19,8 +19,6 @@
     <header class="topbar glass-shell">
       <div class="header-left">
         <div class="system-state"><span class="live-pulse"></span><strong>SYSTEM ONLINE</strong></div>
-        <button id="lunch-preview" class="glow-button" type="button">🍽️ Mahlzeit testen</button>
-        <button id="alarm-preview" class="glow-button" type="button">🚨 Alarm testen</button>
       </div>
 
       <section class="weather-strip" aria-label="Aktuelles Wetter">
@@ -67,7 +65,7 @@
         <div class="panel-header">
           <div class="panel-identity">
             <div class="panel-icon meme-panel-icon">M</div>
-            <div><span class="panel-kicker">R/DEUTSCHEMEMES</span><strong>Neues Meme alle 5 Minuten</strong></div>
+            <div><span class="panel-kicker">DEUTSCHE MEMES</span><strong>Neues Meme alle 5 Minuten</strong></div>
           </div>
           <button id="meme-refresh" class="glow-button compact" type="button">↻ Neues Meme</button>
         </div>
@@ -94,6 +92,11 @@
     <div class="sleep-copy">Ruhemodus</div>
     <div class="sleep-subcopy">Dashboard startet automatisch wieder um 07:30 Uhr</div>
   </section>
+
+  <div hidden aria-hidden="true">
+    <button id="lunch-preview" type="button" tabindex="-1"></button>
+    <button id="alarm-preview" type="button" tabindex="-1"></button>
+  </div>
 
   <script src="meme-preload.js"></script>
   <script src="sounds.js"></script>

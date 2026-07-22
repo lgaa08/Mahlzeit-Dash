@@ -14,9 +14,9 @@
   "meme": {
     "enabled": true,
     "refreshSeconds": 300,
-    "sources": ["deutschememes", "ich_iel"],
-    "batchSize": 120,
-    "poolRefreshMinutes": 20,
+    "sources": ["deutschememes", "ich_iel", "GermanMemes"],
+    "batchSize": 180,
+    "poolRefreshMinutes": 10,
     "blockedKeywords": [
       "nsfw", "nude", "nudity", "nackt", "nacktheit", "porn", "porno", "sex", "sexy",
       "erotik", "erotic", "onlyfans", "boobs", "tits", "brüste", "brust", "ass", "arsch",
